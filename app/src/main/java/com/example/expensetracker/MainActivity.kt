@@ -48,7 +48,17 @@ private val categories = listOf("Food", "Transport", "Bills", "Shopping", "Healt
 @Composable fun SpendwiseApp(sharedImage: Uri?, vm: ExpenseViewModel = viewModel()) {
     val expenses by vm.expenses.collectAsStateWithLifecycle(); var screen by remember { mutableStateOf(Screen.DASHBOARD) }
     var showEditor by remember { mutableStateOf(sharedImage != null) }; var draft by remember { mutableStateOf(ReceiptDraft()) }; var imageForDraft by remember { mutableStateOf(sharedImage) }
-    LaunchedEffect(sharedImage) { if (sharedImage != null) TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS).process(InputImage.fromFilePath(vm.getApplication(), sharedImage)).addOnSuccessListener { draft = OcrReceiptParser.parse(it.text) } }
+    LaunchedEffect(sharedImage) {
+        if (sharedImage != null) {
+            // A second share may arrive while this activity is already running.
+            imageForDraft = sharedImage
+            draft = ReceiptDraft()
+            showEditor = true
+            TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+                .process(InputImage.fromFilePath(vm.getApplication(), sharedImage))
+                .addOnSuccessListener { draft = OcrReceiptParser.parse(it.text) }
+        }
+    }
     Scaffold(topBar = { CenterAlignedTopAppBar(title = { Text("Spendwise", fontWeight = FontWeight.Bold) }) }, bottomBar = { NavigationBar { NavigationBarItem(screen == Screen.DASHBOARD, { screen = Screen.DASHBOARD }, { Icon(Icons.Default.Home, null) }, { Text("Overview") }); NavigationBarItem(screen == Screen.TRANSACTIONS, { screen = Screen.TRANSACTIONS }, { Icon(Icons.Default.ReceiptLong, null) }, { Text("Expenses") }) } }, floatingActionButton = { FloatingActionButton(onClick = { draft = ReceiptDraft(); imageForDraft = null; showEditor = true }) { Icon(Icons.Default.Add, "Add expense") } }) { padding -> when (screen) { Screen.DASHBOARD -> Dashboard(expenses, Modifier.padding(padding)); Screen.TRANSACTIONS -> Transactions(expenses, vm::delete, Modifier.padding(padding)) } }
     if (showEditor) ExpenseEditor(draft, imageForDraft != null, { showEditor = false }) { amount, category, note, merchant -> vm.save(amount, category, note, merchant, imageForDraft?.toString()); showEditor = false }
 }
@@ -68,3 +78,4 @@ private val categories = listOf("Food", "Transport", "Bills", "Shopping", "Healt
     AlertDialog(onDismissRequest = onDismiss, title = { Text(if (fromScreenshot) "Review receipt" else "Add expense") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { if (fromScreenshot) Text("Values were read from your screenshot. Please verify before saving.", style = MaterialTheme.typography.bodySmall); OutlinedTextField(amount, { amount = it }, label = { Text("Amount (₹)") }, singleLine = true); OutlinedTextField(merchant, { merchant = it }, label = { Text("Merchant / payee") }, singleLine = true); OutlinedTextField(note, { note = it }, label = { Text("Your note") }); Text("Category"); Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { categories.take(3).forEach { AssistChip({ category = it }, { Text(it) }) } }; Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) { categories.drop(3).forEach { AssistChip({ category = it }, { Text(it) }) } } } }, confirmButton = { Button({ onSave(amount, category, note, merchant) }, enabled = amount.toBigDecimalOrNull()?.signum() == 1) { Text("Save expense") } }, dismissButton = { Button(onDismiss) { Text("Cancel") } })
 }
 private fun money(paise: Long): String = NumberFormat.getCurrencyInstance(Locale("en", "IN")).format(paise / 100.0)
+
