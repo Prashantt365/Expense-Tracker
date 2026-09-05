@@ -59,7 +59,35 @@ private val categories = listOf("Food", "Transport", "Bills", "Shopping", "Healt
                 .addOnSuccessListener { draft = OcrReceiptParser.parse(it.text) }
         }
     }
-    Scaffold(topBar = { CenterAlignedTopAppBar(title = { Text("Spendwise", fontWeight = FontWeight.Bold) }) }, bottomBar = { NavigationBar { NavigationBarItem(screen == Screen.DASHBOARD, { screen = Screen.DASHBOARD }, { Icon(Icons.Default.Home, null) }, { Text("Overview") }); NavigationBarItem(screen == Screen.TRANSACTIONS, { screen = Screen.TRANSACTIONS }, { Icon(Icons.Default.ReceiptLong, null) }, { Text("Expenses") }) } }, floatingActionButton = { FloatingActionButton(onClick = { draft = ReceiptDraft(); imageForDraft = null; showEditor = true }) { Icon(Icons.Default.Add, "Add expense") } }) { padding -> when (screen) { Screen.DASHBOARD -> Dashboard(expenses, Modifier.padding(padding)); Screen.TRANSACTIONS -> Transactions(expenses, vm::delete, Modifier.padding(padding)) } }
+    Scaffold(
+        topBar = { CenterAlignedTopAppBar(title = { Text("Spendwise", fontWeight = FontWeight.Bold) }) },
+        bottomBar = {
+            NavigationBar {
+                NavigationBarItem(
+                    selected = screen == Screen.DASHBOARD,
+                    onClick = { screen = Screen.DASHBOARD },
+                    icon = { Icon(Icons.Default.Home, null) },
+                    label = { Text("Overview") }
+                )
+                NavigationBarItem(
+                    selected = screen == Screen.TRANSACTIONS,
+                    onClick = { screen = Screen.TRANSACTIONS },
+                    icon = { Icon(Icons.Default.ReceiptLong, null) },
+                    label = { Text("Expenses") }
+                )
+            }
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { draft = ReceiptDraft(); imageForDraft = null; showEditor = true }) {
+                Icon(Icons.Default.Add, "Add expense")
+            }
+        }
+    ) { padding ->
+        when (screen) {
+            Screen.DASHBOARD -> Dashboard(expenses, Modifier.padding(padding))
+            Screen.TRANSACTIONS -> Transactions(expenses, vm::delete, Modifier.padding(padding))
+        }
+    }
     if (showEditor) ExpenseEditor(draft, imageForDraft != null, { showEditor = false }) { amount, category, note, merchant -> vm.save(amount, category, note, merchant, imageForDraft?.toString()); showEditor = false }
 }
 

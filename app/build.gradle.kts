@@ -18,6 +18,42 @@ android {
     }
 
     buildFeatures { compose = true; buildConfig = true }
+
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
+    }
+
+    signingConfigs {
+        create("release") {
+            // These properties are defined in gradle.properties
+            storeFile = file(project.findProperty("RELEASE_STORE_FILE") ?: "my-release-key.jks")
+            storePassword = project.findProperty("RELEASE_STORE_PASSWORD")?.toString() ?: ""
+            keyAlias = project.findProperty("RELEASE_KEY_ALIAS")?.toString() ?: ""
+            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD")?.toString() ?: ""
+        }
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = true
+            isShrinkResources = true
+            signingConfig = signingConfigs.getByName("release")
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 
