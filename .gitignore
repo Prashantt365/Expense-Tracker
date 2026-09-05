@@ -1,26 +1,31 @@
+# Build output
 .gradle
 /build
 /app/build
-*.iml
-.idea/workspace.xml
-.idea/libraries
-.idea/modules.xml
-.idea/caches
-.idea/deploymentTargetSelector.xml
-.idea/assetWizardSettings.xml
-.idea/renderers.xml
-.idea/kotlin_device_suggestions.xml
-local.properties
-.DS_Store
+build/
 captures
 .externalNativeBuild
 .cxx
+.kotlin
+
+# Local machine configuration -- never commit, it holds absolute SDK paths
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Signing material
+*.jks
+*.keystore
 /google-services.json
-.idea/modules/
-.idea/navEditor.xml
+
+# Artifacts
 *.apk
 *.ap_
+*.aab
 *.dex
 *.class
 bin/
 gen/
+.DS_Store

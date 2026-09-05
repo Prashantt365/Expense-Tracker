@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Spendwise is offline-first and its database holds financial history, so nothing is copied off
+  the device by Android's automatic backup.
+-->
+<full-backup-content>
+    <exclude domain="database" path="spendwise.db" />
+    <exclude domain="database" path="spendwise.db-shm" />
+    <exclude domain="database" path="spendwise.db-wal" />
+</full-backup-content>

@@ -24,13 +24,21 @@ android {
         abortOnError = false
     }
 
+    // Release signing is wired up only when a keystore is actually present, so a release build
+    // still succeeds (unsigned) on a machine without the key. Set the four RELEASE_* properties in
+    // ~/.gradle/gradle.properties -- never in the repo, where they would be committed.
+    val releaseKeystore = (project.findProperty("RELEASE_STORE_FILE") as String?)
+        ?.let(::file)
+        ?.takeIf { it.exists() }
+
     signingConfigs {
-        create("release") {
-            // These properties are defined in gradle.properties
-            storeFile = file(project.findProperty("RELEASE_STORE_FILE") ?: "my-release-key.jks")
-            storePassword = project.findProperty("RELEASE_STORE_PASSWORD")?.toString() ?: ""
-            keyAlias = project.findProperty("RELEASE_KEY_ALIAS")?.toString() ?: ""
-            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD")?.toString() ?: ""
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = project.findProperty("RELEASE_STORE_PASSWORD") as String?
+                keyAlias = project.findProperty("RELEASE_KEY_ALIAS") as String?
+                keyPassword = project.findProperty("RELEASE_KEY_PASSWORD") as String?
+            }
         }
     }
 
@@ -38,7 +46,7 @@ android {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = releaseKeystore?.let { signingConfigs.getByName("release") }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -74,4 +82,5 @@ dependencies {
     implementation("com.google.mlkit:text-recognition:16.0.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("junit:junit:4.13.2")
 }
