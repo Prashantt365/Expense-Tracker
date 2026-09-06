@@ -50,6 +50,14 @@ fun ExpenseEditor(
     var showPersonMenu by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<AttachmentPreview?>(null) }
 
+    // A launcher shortcut opens this before the database has produced its categories, so the
+    // initial pick can be a name that is not on the list. Snap to a real one once they arrive.
+    LaunchedEffect(categories) {
+        if (categories.isNotEmpty() && categories.none { it.name == draft.category }) {
+            draft = draft.copy(category = categories.first().name)
+        }
+    }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(5)) { uris ->
         if (uris.isNotEmpty()) draft = draft.copy(newAttachments = draft.newAttachments + uris)
     }

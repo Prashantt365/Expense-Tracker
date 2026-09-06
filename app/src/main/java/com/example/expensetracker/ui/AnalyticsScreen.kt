@@ -22,6 +22,7 @@ fun AnalyticsScreen(
     report: AnalyticsReport,
     period: Period,
     onPeriodChange: (Period) -> Unit,
+    onSettle: (personId: Long, name: String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -51,7 +52,7 @@ fun AnalyticsScreen(
         item { OthersCard(report) }
         item { TrendSection(report) }
         item { CategorySection(report) }
-        if (report.people.isNotEmpty()) item { PeopleSection(report) }
+        if (report.people.isNotEmpty()) item { PeopleSection(report, onSettle) }
         item { PatternSection(report) }
     }
 }
@@ -184,7 +185,7 @@ private fun CategorySection(report: AnalyticsReport) {
 }
 
 @Composable
-private fun PeopleSection(report: AnalyticsReport) {
+private fun PeopleSection(report: AnalyticsReport, onSettle: (Long, String) -> Unit) {
     val worst = report.people.maxOfOrNull { it.sharedPaise }?.takeIf { it > 0 } ?: 1L
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Section("By person")
@@ -196,9 +197,14 @@ private fun PeopleSection(report: AnalyticsReport) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
                 report.people.forEach { person ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(person.name, Modifier.weight(1f), fontWeight = FontWeight.SemiBold)
                             Text(money(person.outstandingPaise), fontWeight = FontWeight.Bold)
+                            // Settling is what you want the moment you see a balance, so it
+                            // belongs here rather than only on the People tab.
+                            if (person.outstandingPaise > 0) TextButton(
+                                { onSettle(person.personId, person.name) }
+                            ) { Text("Settle") }
                         }
                         // Scaled against the biggest sharer so the rows can be read against
                         // each other, not just as each person's own recovered/owed ratio.

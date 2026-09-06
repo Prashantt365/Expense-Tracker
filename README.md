@@ -15,7 +15,11 @@ An offline-first Android expense tracker that supports manual entry and receipt 
 - Three ways to split: custom rupee amounts, an even split, or percentages -- every share optional
 - Per-person balances with settle-up
 - An Insights dashboard: my own spending against what I front for others, a 12-month trend,
-  category mix, per-person exposure after settlements, and weekday patterns
+  category mix, per-person exposure after settlements, and weekday patterns -- settle straight
+  from the per-person rows
+- Import transactions from a bank or UPI statement PDF, reviewed row by row before anything saves
+- Launcher shortcuts for Add, Split, Import and Balances, each pinnable to the home screen
+- Add people from phone contacts, with near-duplicate names flagged rather than silently merged
 
 ## Build
 
@@ -74,6 +78,32 @@ what you are carrying for other people.
 
 Every figure is computed by pure functions in `Analytics.kt` over the loaded expense list, which is
 why the arithmetic is unit-tested rather than buried in SQL.
+
+## Importing a statement
+
+PdfRenderer only rasterises pages, it does not expose their text, so each page is rendered and put
+through the same on-device OCR the receipt flow uses. That keeps the work offline and adds no
+dependency, at the cost of reading the page as an image.
+
+The parser reads by shape rather than by column, since layouts vary by issuer: a date near the
+start, one or more money figures, and whatever text lies between them. Where a row carries more
+than one figure the trailing one is treated as the running balance and dropped. Credits are
+detected and arrive unticked. Nothing is written until the review screen is confirmed, and rows
+that duplicate an existing expense are skipped on import.
+
+The layouts it is tuned for are the common Indian bank and UPI statement shapes. If your statement
+reads badly, the fix belongs in `StatementParser` and its unit tests.
+
+## Contacts
+
+READ_CONTACTS is requested at runtime, only from the people settings, and only when you ask to
+import. Names are read; nothing is written back and nothing leaves the device.
+
+A phone book routinely holds the same person more than once, so every candidate is compared
+against the existing people and against the rest of the import. Reversed name order, an
+abbreviated surname, honorifics, accents and typos all count as a match. Flagged names arrive
+unticked rather than dropped: a false flag costs one tick, whereas a missed duplicate corrupts
+every balance that person appears in.
 
 ## Release signing
 

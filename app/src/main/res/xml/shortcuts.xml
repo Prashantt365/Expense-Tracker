@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Long-pressing the launcher icon offers these, and each can be dragged onto the home screen as a
+  shortcut of its own. Every one targets MainActivity with its own action, which the activity reads
+  on start.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <shortcut
+        android:shortcutId="add_expense"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_add_short"
+        android:shortcutLongLabel="@string/shortcut_add_long">
+        <intent
+            android:action="com.example.expensetracker.ADD_EXPENSE"
+            android:targetPackage="com.example.expensetracker"
+            android:targetClass="com.example.expensetracker.MainActivity" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="split_expense"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_split"
+        android:shortcutShortLabel="@string/shortcut_split_short"
+        android:shortcutLongLabel="@string/shortcut_split_long">
+        <intent
+            android:action="com.example.expensetracker.SPLIT_EXPENSE"
+            android:targetPackage="com.example.expensetracker"
+            android:targetClass="com.example.expensetracker.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="import_pdf"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_import"
+        android:shortcutShortLabel="@string/shortcut_import_short"
+        android:shortcutLongLabel="@string/shortcut_import_long">
+        <intent
+            android:action="com.example.expensetracker.IMPORT_PDF"
+            android:targetPackage="com.example.expensetracker"
+            android:targetClass="com.example.expensetracker.MainActivity" />
+    </shortcut>
+
+    <shortcut
+        android:shortcutId="balances"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_people"
+        android:shortcutShortLabel="@string/shortcut_balances_short"
+        android:shortcutLongLabel="@string/shortcut_balances_long">
+        <intent
+            android:action="com.example.expensetracker.OPEN_BALANCES"
+            android:targetPackage="com.example.expensetracker"
+            android:targetClass="com.example.expensetracker.MainActivity" />
+    </shortcut>
+
+</shortcuts>

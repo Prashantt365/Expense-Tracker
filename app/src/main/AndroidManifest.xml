@@ -1,21 +1,54 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Read only, requested at runtime from the people settings and only when the user asks to
+      import. Names are read into the people list; nothing is written back and nothing leaves
+      the device.
+    -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <application
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
-        android:label="Spendwise"
+        android:label="@string/app_name"
         android:theme="@style/Theme.ExpenseTracker">
-        <activity android:name=".MainActivity" android:exported="true">
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+
             <!-- Makes Spendwise appear when a Google Pay receipt screenshot is shared. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="image/*" />
             </intent-filter>
+
+            <!-- Accepts a statement shared or opened from a file manager or mail client. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
+
+            <!-- Launcher shortcuts, each of which can also be pinned to the home screen. -->
+            <intent-filter>
+                <action android:name="com.example.expensetracker.ADD_EXPENSE" />
+                <action android:name="com.example.expensetracker.SPLIT_EXPENSE" />
+                <action android:name="com.example.expensetracker.IMPORT_PDF" />
+                <action android:name="com.example.expensetracker.OPEN_BALANCES" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.app.shortcuts"
+                android:resource="@xml/shortcuts" />
         </activity>
     </application>
 </manifest>

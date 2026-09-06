@@ -1,0 +1,12 @@
+<resources>
+    <string name="app_name">Spendwise</string>
+
+    <string name="shortcut_add_short">Add</string>
+    <string name="shortcut_add_long">Add an expense</string>
+    <string name="shortcut_split_short">Split</string>
+    <string name="shortcut_split_long">Split an expense</string>
+    <string name="shortcut_import_short">Import</string>
+    <string name="shortcut_import_long">Import from PDF</string>
+    <string name="shortcut_balances_short">Balances</string>
+    <string name="shortcut_balances_long">Who owes you</string>
+</resources>

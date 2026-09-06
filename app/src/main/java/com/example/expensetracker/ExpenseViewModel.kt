@@ -9,12 +9,13 @@ import com.example.expensetracker.data.Expense
 import com.example.expensetracker.data.ExpenseDetails
 import com.example.expensetracker.data.ExpenseRepository
 import com.example.expensetracker.data.ExpenseSplit
+import com.example.expensetracker.data.PdfTextReader
 import com.example.expensetracker.data.Person
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.math.BigDecimal
-import java.math.RoundingMode
 
 /** Everything the editor collects, in the raw text form the fields hold it. */
 data class ExpenseInput(
@@ -36,6 +37,18 @@ data class ExpenseInput(
     val existingAttachments: List<Attachment> = emptyList(),
     val removedAttachmentIds: List<Long> = emptyList()
 )
+
+/** Where a statement import has got to. */
+sealed interface ImportState {
+    data object Idle : ImportState
+    data class Reading(val page: Int, val total: Int) : ImportState
+    data class Review(
+        val rows: List<StatementRow>,
+        val selected: Set<Int>,
+        val category: String = "Other"
+    ) : ImportState
+    data class Failed(val message: String) : ImportState
+}
 
 sealed interface SaveOutcome {
     data object Saved : SaveOutcome
@@ -107,5 +120,64 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val owing = repository.personOutstandingCount(person.id)
         if (owing > 0) onBlocked(owing) else repository.deletePerson(person)
     }
+
+    fun addPeople(names: List<String>, onDone: (Int) -> Unit) = viewModelScope.launch {
+        onDone(repository.addPeople(names))
+    }
+
+    // --- Statement import -------------------------------------------------------------------
+
+    private val _import = MutableStateFlow<ImportState>(ImportState.Idle)
+    val importState: StateFlow<ImportState> = _import
+
+    fun importFrom(uri: Uri) = viewModelScope.launch {
+        _import.value = ImportState.Reading(0, 0)
+        val reader = PdfTextReader(getApplication())
+        val text = reader.readText(uri) { page, total -> _import.value = ImportState.Reading(page, total) }
+        text.onFailure {
+            _import.value = ImportState.Failed("Couldn't read that PDF. It may be password protected.")
+        }.onSuccess { content ->
+            val rows = StatementParser.parse(content)
+            _import.value = if (rows.isEmpty()) {
+                ImportState.Failed("No transactions were recognised in that PDF.")
+            } else {
+                // Credits are money in, so they start unticked; the user can still take them.
+                ImportState.Review(rows, rows.indices.filterNot { rows[it].isCredit }.toSet())
+            }
+        }
+    }
+
+    fun toggleImportRow(index: Int) {
+        val current = _import.value as? ImportState.Review ?: return
+        val selected = current.selected.toMutableSet()
+        if (!selected.add(index)) selected.remove(index)
+        _import.value = current.copy(selected = selected)
+    }
+
+    fun setImportCategory(category: String) {
+        val current = _import.value as? ImportState.Review ?: return
+        _import.value = current.copy(category = category)
+    }
+
+    fun confirmImport(onDone: (Int) -> Unit) = viewModelScope.launch {
+        val current = _import.value as? ImportState.Review ?: return@launch
+        val now = System.currentTimeMillis()
+        val expenses = current.selected.sorted().map { index ->
+            val row = current.rows[index]
+            Expense(
+                amountPaise = row.amountPaise,
+                category = current.category,
+                note = "",
+                merchant = row.description.take(80),
+                // A row whose date could not be read falls back to now rather than being dropped.
+                paidAt = row.date ?: now
+            )
+        }
+        val written = repository.importExpenses(expenses)
+        _import.value = ImportState.Idle
+        onDone(written)
+    }
+
+    fun cancelImport() { _import.value = ImportState.Idle }
 
 }

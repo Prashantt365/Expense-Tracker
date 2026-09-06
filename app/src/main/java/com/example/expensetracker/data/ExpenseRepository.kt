@@ -107,6 +107,30 @@ class ExpenseRepository(context: Context) {
     suspend fun deletePerson(person: Person) = personDao.delete(person)
     suspend fun personOutstandingCount(id: Long) = personDao.outstandingCount(id)
 
+    /** Bulk import from a statement. Returns how many rows were actually written. */
+    suspend fun importExpenses(expenses: List<Expense>, skipDuplicates: Boolean = true): Int {
+        var written = 0
+        expenses.forEach { expense ->
+            if (skipDuplicates && findDuplicate(expense) != null) return@forEach
+            val id = expenseDao.insert(expense)
+            // An imported row is entirely mine until it is edited and split.
+            expenseDao.insertSplits(
+                listOf(ExpenseSplit(expenseId = id, personId = null, amountPaise = expense.amountPaise))
+            )
+            written++
+        }
+        return written
+    }
+
+    suspend fun addPeople(names: List<String>): Int {
+        var added = 0
+        names.forEach { name ->
+            // insert ignores on conflict, so a -1 means the name was already taken.
+            if (personDao.insert(Person(name = name.trim())) != -1L) added++
+        }
+        return added
+    }
+
     private companion object {
         /** Same amount to the same payee inside a day reads as a re-entry rather than a repeat buy. */
         const val DUPLICATE_WINDOW_MILLIS = 24L * 60 * 60 * 1000

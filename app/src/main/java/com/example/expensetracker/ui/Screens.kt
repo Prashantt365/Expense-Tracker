@@ -10,6 +10,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
@@ -24,7 +26,6 @@ import com.example.expensetracker.data.Category
 import com.example.expensetracker.data.ExpenseDetails
 import com.example.expensetracker.data.Person
 import com.example.expensetracker.data.PersonBalance
-import java.util.Calendar
 
 @Composable
 fun TransactionsScreen(
@@ -129,7 +130,7 @@ fun PeopleScreen(vm: ExpenseViewModel, balances: List<PersonBalance>, modifier: 
 }
 
 @Composable
-private fun SettleDialog(vm: ExpenseViewModel, balance: PersonBalance, onDismiss: () -> Unit) {
+fun SettleDialog(vm: ExpenseViewModel, balance: PersonBalance, onDismiss: () -> Unit) {
     val shares by vm.outstandingFor(balance.personId).collectAsState(initial = emptyList())
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -166,6 +167,8 @@ fun SettingsScreen(
     vm: ExpenseViewModel,
     categories: List<Category>,
     people: List<Person>,
+    onImportContacts: () -> Unit,
+    onImportPdf: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var message by remember { mutableStateOf<String?>(null) }
@@ -222,8 +225,25 @@ fun SettingsScreen(
                 }
             }
         }
-        OutlinedButton({ addingPerson = true }) {
-            Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add person")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton({ addingPerson = true }) {
+                Icon(Icons.Default.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(8.dp)); Text("Add person")
+            }
+            OutlinedButton(onImportContacts) {
+                Icon(Icons.Default.Contacts, null, Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp)); Text("From contacts")
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        Section("Import")
+        Text(
+            "Read a bank or UPI statement and pick which rows to record. Pages are read on device.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        OutlinedButton(onImportPdf) {
+            Icon(Icons.Default.PictureAsPdf, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp)); Text("Import from PDF")
         }
         Spacer(Modifier.height(24.dp))
     }
