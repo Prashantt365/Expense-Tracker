@@ -159,6 +159,52 @@ class OcrReceiptParserTest {
         }
     }
 
+    @Test fun `ignores action buttons and keeps a short note`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            ₹500
+            Paid to Rahul Sharma
+            me
+            Completed
+            6 Sep 2026, 2:15 pm
+            UPI transaction ID 123456789012
+            From HDFC Bank ••1234
+            Pay again
+            Split expense
+            """.trimIndent()
+        )
+        assertEquals("500", draft.amount)
+        assertEquals("Rahul Sharma", draft.merchant)
+        assertEquals("me", draft.note)
+    }
+
+    @Test fun `ignores an action button that OCR returns before the note`() {
+        // ML Kit orders blocks spatially, so a button at the foot of the receipt can arrive first.
+        val draft = OcrReceiptParser.parse(
+            """
+            Pay again
+            ₹500
+            Paid to Rahul Sharma
+            me
+            Completed
+            """.trimIndent()
+        )
+        assertEquals("me", draft.note)
+        assertEquals("Rahul Sharma", draft.merchant)
+    }
+
+    @Test fun `keeps a note that merely starts with a button word`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            ₹800
+            Paid to Rahul Sharma
+            Share of the cab
+            Completed
+            """.trimIndent()
+        )
+        assertEquals("Share of the cab", draft.note)
+    }
+
     @Test fun `categorises from the merchant and the note together`() {
         assertEquals("Transport", OcrReceiptParser.categorize("uber trip"))
         assertEquals("Bills", OcrReceiptParser.categorize("airtel recharge"))

@@ -45,7 +45,15 @@ object OcrReceiptParser {
         RegexOption.IGNORE_CASE
     )
 
-    /** Receipt chrome: never an amount, a payee, or the payer's own message. */
+    /**
+     * Receipt chrome: never an amount, a payee, or the payer's own message.
+     *
+     * ML Kit returns text blocks in roughly, but not strictly, top-to-bottom order, so an action
+     * button rendered at the bottom of the receipt can arrive ahead of the payer's note. Filtering
+     * the buttons out by name is what keeps a short note like "me" from losing to "Pay again".
+     * Button labels are matched as whole lines wherever possible, so a note that merely starts with
+     * one of these words ("Share of the cab") still survives.
+     */
     private val boilerplate = listOf(
         "^(?:completed|pending|failed|processing|cancell?ed|payment successful|successful|success)\\b",
         "\\bupi\\b",
@@ -58,8 +66,18 @@ object OcrReceiptParser {
         "\\baccount\\b",
         "\\ba/c\\b",
         "\\bbalance\\b",
-        "^(?:view|share|help|contact|rate|report|done|close|repeat)\\b",
-        "\\bsplit expense\\b"
+        // Google Pay action buttons.
+        "^(?:pay|send|request|order)\\s+again\\b",
+        "^(?:split expense|split bill|share receipt|view details|see details|show more|show less)$",
+        "^(?:view|share|download|print)\\s+(?:receipt|details|invoice|statement)\\b",
+        "^(?:contact|message|call)\\s+\\S+$",
+        "^(?:get help|need help|help|report an issue|report a problem|something went wrong)\\b",
+        "^(?:rate|review)\\s+(?:this|your)\\b",
+        "^(?:done|close|ok|okay|cancel|back|retry|repeat)$",
+        "^(?:transaction|payment)\\s+details$",
+        "^(?:money (?:sent|received)|you (?:paid|sent|received))\\b",
+        "^add (?:to contacts|a note|note)$",
+        "^(?:new payment|scan any qr|self transfer|check balance)\\b"
     ).map { Regex(it, RegexOption.IGNORE_CASE) }
 
     private class Candidate(val index: Int, val value: String) {
