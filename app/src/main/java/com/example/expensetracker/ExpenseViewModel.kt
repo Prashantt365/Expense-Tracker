@@ -25,7 +25,12 @@ data class ExpenseInput(
     val merchant: String = "",
     val paidAt: Long = System.currentTimeMillis(),
     val sourceUri: String? = null,
-    /** personId to their typed share. My own share is the remainder, never typed. */
+    val splitMode: SplitMode = SplitMode.CUSTOM,
+    /**
+     * personId to whatever they typed, read according to [splitMode] - rupees, a percentage, or
+     * ignored entirely for an equal split. Blank is allowed: it just leaves that person out.
+     * My own share is the remainder and is never typed.
+     */
     val shares: Map<Long, String> = emptyMap(),
     val newAttachments: List<Uri> = emptyList(),
     val existingAttachments: List<Attachment> = emptyList(),
@@ -53,7 +58,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val totalPaise = SplitCalculator.parsePaise(input.amount)
             ?: return onResult(SaveOutcome.Invalid("Enter an amount like 250 or 250.50"))
 
-        val split = SplitCalculator.compute(totalPaise, input.shares)
+        val split = SplitCalculator.compute(totalPaise, input.splitMode, input.shares)
         if (split is SplitResult.Invalid) return onResult(SaveOutcome.Invalid(split.message))
         val shares = (split as SplitResult.Valid).shares.map {
             ExpenseSplit(expenseId = input.id, personId = it.personId, amountPaise = it.amountPaise)

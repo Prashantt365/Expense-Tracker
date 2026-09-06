@@ -27,51 +27,6 @@ import com.example.expensetracker.data.PersonBalance
 import java.util.Calendar
 
 @Composable
-fun DashboardScreen(expenses: List<ExpenseDetails>, modifier: Modifier = Modifier) {
-    val now = Calendar.getInstance()
-    val month = now.get(Calendar.MONTH)
-    val year = now.get(Calendar.YEAR)
-    val cursor = remember { Calendar.getInstance() }
-    val monthly = expenses.filter {
-        cursor.timeInMillis = it.expense.paidAt
-        cursor.get(Calendar.MONTH) == month && cursor.get(Calendar.YEAR) == year
-    }
-    val total = monthly.sumOf { it.expense.amountPaise }
-    val owed = monthly.sumOf { it.outstandingPaise }
-    val grouped = monthly.groupBy { it.expense.category }
-        .mapValues { entry -> entry.value.sumOf { it.expense.amountPaise } }
-        .toList()
-        .sortedByDescending { it.second }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Text(monthLabel(System.currentTimeMillis()), style = MaterialTheme.typography.titleMedium)
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(20.dp)) {
-                Text("Total spent")
-                Text(money(total), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
-                if (owed > 0) Text(
-                    "${money(owed)} of this is owed back to you",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-        Section("By category")
-        if (grouped.isEmpty()) Text("No expenses yet. Tap + or share a payment screenshot.")
-        grouped.forEach { (category, value) ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(Modifier.padding(16.dp)) {
-                    Text(category, Modifier.weight(1f))
-                    Text(money(value), fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 fun TransactionsScreen(
     expenses: List<ExpenseDetails>,
     onEdit: (ExpenseDetails) -> Unit,

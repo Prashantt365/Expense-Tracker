@@ -29,6 +29,9 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.expensetracker.ExpenseInput
 import com.example.expensetracker.data.Category
 import com.example.expensetracker.data.Expense
+import com.example.expensetracker.SplitCalculator
+import com.example.expensetracker.SplitMode
+import com.example.expensetracker.SplitResult
 import com.example.expensetracker.data.Person
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,9 +54,18 @@ fun ExpenseEditor(
         if (uris.isNotEmpty()) draft = draft.copy(newAttachments = draft.newAttachments + uris)
     }
 
+    // Preview the split live, using the same calculator that will run on save, so what the summary
+    // shows and what gets stored can never drift apart.
     val totalPaise = rupeesToPaise(draft.amount) ?: 0L
-    val assignedPaise = draft.shares.values.sumOf { rupeesToPaise(it) ?: 0L }
-    val myShare = totalPaise - assignedPaise
+    val splitPreview = SplitCalculator.compute(totalPaise, draft.splitMode, draft.shares)
+    val computedShares = (splitPreview as? SplitResult.Valid)
+        ?.shares
+        ?.filter { it.personId != null }
+        ?.associate { it.personId!! to it.amountPaise }
+        .orEmpty()
+    val assignedPaise = computedShares.values.sum()
+    val myShare = (splitPreview as? SplitResult.Valid)?.myShare ?: (totalPaise - assignedPaise)
+    val splitProblem = (splitPreview as? SplitResult.Invalid)?.message?.takeIf { draft.shares.isNotEmpty() }
     val previews = draft.existingAttachments
         .filter { it.id !in draft.removedAttachmentIds }
         .map { AttachmentPreview.Stored(it.id, it.path) } + draft.newAttachments.map { AttachmentPreview.Picked(it) }
@@ -160,11 +172,44 @@ fun ExpenseEditor(
                         "Add people under Settings to split an expense.",
                         style = MaterialTheme.typography.bodySmall
                     )
+                    if (people.isNotEmpty()) {
+                        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                            SplitMode.entries.forEachIndexed { index, mode ->
+                                SegmentedButton(
+                                    selected = draft.splitMode == mode,
+                                    onClick = {
+                                        // Rupees and percentages are different units, so carrying
+                                        // the typed figures across would turn "420" into 420%.
+                                        // Equal ignores them, so switching via Equal keeps them.
+                                        val unitsChanged = mode != draft.splitMode &&
+                                            mode != SplitMode.EQUAL &&
+                                            draft.splitMode != SplitMode.EQUAL
+                                        draft = draft.copy(
+                                            splitMode = mode,
+                                            shares = if (unitsChanged) draft.shares.mapValues { "" } else draft.shares
+                                        )
+                                    },
+                                    shape = SegmentedButtonDefaults.itemShape(index, SplitMode.entries.size),
+                                    label = { Text(mode.label) }
+                                )
+                            }
+                        }
+                        Text(
+                            when (draft.splitMode) {
+                                SplitMode.CUSTOM -> "Type each person's share. Leave one blank to leave them out."
+                                SplitMode.EQUAL -> "Divided evenly across everyone added, plus you."
+                                SplitMode.PERCENT -> "Type each person's percentage. Yours is whatever is left."
+                            },
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                     draft.shares.forEach { (personId, share) ->
                         val person = people.firstOrNull { it.id == personId } ?: return@forEach
                         ShareRow(
                             name = person.name,
                             value = share,
+                            mode = draft.splitMode,
+                            computed = computedShares[personId],
                             onChange = { draft = draft.copy(shares = draft.shares + (personId to it)) },
                             onRemove = { draft = draft.copy(shares = draft.shares - personId) }
                         )
@@ -188,7 +233,7 @@ fun ExpenseEditor(
                             }
                         }
                     }
-                    if (draft.shares.isNotEmpty()) SplitSummary(totalPaise, assignedPaise, myShare)
+                    if (draft.shares.isNotEmpty()) SplitSummary(totalPaise, assignedPaise, myShare, splitProblem)
                     Spacer(Modifier.height(24.dp))
                 }
             }
@@ -222,8 +267,8 @@ fun ExpenseEditor(
     }
 }
 
-@Composable private fun SplitSummary(totalPaise: Long, assignedPaise: Long, myShare: Long) {
-    val over = myShare < 0
+@Composable private fun SplitSummary(totalPaise: Long, assignedPaise: Long, myShare: Long, problem: String?) {
+    val over = problem != null || myShare < 0
     Card(
         colors = CardDefaults.cardColors(
             containerColor = if (over) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.surfaceVariant
@@ -241,7 +286,7 @@ fun ExpenseEditor(
                 Text(if (over) "—" else money(myShare), fontWeight = FontWeight.Bold)
             }
             if (over) Text(
-                "Shares add up to more than the total.",
+                problem ?: "Shares add up to more than the total.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )
@@ -249,13 +294,27 @@ fun ExpenseEditor(
     }
 }
 
-@Composable private fun ShareRow(name: String, value: String, onChange: (String) -> Unit, onRemove: () -> Unit) {
+@Composable private fun ShareRow(
+    name: String,
+    value: String,
+    mode: SplitMode,
+    computed: Long?,
+    onChange: (String) -> Unit,
+    onRemove: () -> Unit
+) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(name, Modifier.weight(1f))
-        OutlinedTextField(
+        Column(Modifier.weight(1f)) {
+            Text(name)
+            // In equal and percent mode the rupee figure is derived, so show what it worked out to.
+            if (mode != SplitMode.CUSTOM) Text(
+                computed?.let { "owes ${money(it)}" } ?: "owes nothing yet",
+                style = MaterialTheme.typography.labelSmall
+            )
+        }
+        if (mode != SplitMode.EQUAL) OutlinedTextField(
             value,
             onChange,
-            label = { Text("Owes ₹") },
+            label = { Text(if (mode == SplitMode.PERCENT) "Share %" else "Owes ₹") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.width(140.dp)

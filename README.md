@@ -12,8 +12,10 @@ An offline-first Android expense tracker that supports manual entry and receipt 
 - Attachments stored in app-private storage — the shared receipt is attached automatically, and
   more images can be added to any expense
 - Editable categories, and people you can split an expense with
+- Three ways to split: custom rupee amounts, an even split, or percentages -- every share optional
 - Per-person balances with settle-up
-- Room database transaction history and current-month category report
+- An Insights dashboard: my own spending against what I front for others, a 12-month trend,
+  category mix, per-person exposure after settlements, and weekday patterns
 
 ## Build
 
@@ -47,9 +49,31 @@ all arrive as bare text — so each field is found by structure rather than by k
 
 ## Splitting
 
-Each person's share is entered by hand; yours is whatever is left over, so the parts always
-reconcile with the total. Balances count only unsettled shares, and settling one person never
+Three modes, chosen per expense:
+
+- **Custom** -- type each person's rupee share. Leaving a field blank leaves that person out.
+- **Equal** -- divided evenly across everyone added, plus you. Indivisible paise land on you.
+- **Percent** -- type each person's percentage; yours is the remaining percentage.
+
+Whichever mode is used, your share is the remainder, so the parts always reconcile with the total
+and no rounding scrap goes missing. Switching between Custom and Percent clears the typed figures,
+since the units differ. Balances count only unsettled shares, and settling one person never
 touches anybody else's.
+
+## Insights
+
+The dashboard separates two questions that a single total conflates: what you actually spent, and
+what you are carrying for other people.
+
+- **My own spending** strips out every share assigned to somebody else, so categories, the weekday
+  pattern and the month-over-month comparison all describe your money alone.
+- **Spent on other people** shows the effective cost after settlements: what you put out, what has
+  come back, and what is still outstanding -- overall and per person.
+- The 12-month trend stacks both parts, so a heavy month that was mostly fronted for others reads
+  differently from one that was all yours.
+
+Every figure is computed by pure functions in `Analytics.kt` over the loaded expense list, which is
+why the arithmetic is unit-tested rather than buried in SQL.
 
 ## Release signing
 

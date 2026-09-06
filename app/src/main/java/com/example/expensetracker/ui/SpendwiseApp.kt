@@ -15,7 +15,9 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.expensetracker.Analytics
 import com.example.expensetracker.ExpenseInput
+import com.example.expensetracker.Period
 import com.example.expensetracker.ExpenseViewModel
 import com.example.expensetracker.OcrReceiptParser
 import com.example.expensetracker.SaveOutcome
@@ -25,7 +27,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 
 private enum class Screen(val label: String, val icon: ImageVector) {
-    DASHBOARD("Overview", Icons.Default.Home),
+    DASHBOARD("Insights", Icons.Default.Home),
     TRANSACTIONS("Expenses", Icons.AutoMirrored.Filled.ReceiptLong),
     PEOPLE("People", Icons.Default.Group),
     SETTINGS("Settings", Icons.Default.Settings)
@@ -44,6 +46,7 @@ fun SpendwiseApp(sharedImage: Uri?, shareToken: Int, vm: ExpenseViewModel = view
     var fromScreenshot by remember { mutableStateOf(false) }
     var editorError by remember { mutableStateOf<String?>(null) }
     var duplicateOf by remember { mutableStateOf<Expense?>(null) }
+    var period by remember { mutableStateOf(Period.MONTH) }
 
     val defaultCategory = categories.firstOrNull()?.name ?: "Other"
 
@@ -106,7 +109,12 @@ fun SpendwiseApp(sharedImage: Uri?, shareToken: Int, vm: ExpenseViewModel = view
     ) { padding ->
         val content = Modifier.padding(padding)
         when (screen) {
-            Screen.DASHBOARD -> DashboardScreen(expenses, content)
+            Screen.DASHBOARD -> AnalyticsScreen(
+                report = remember(expenses, people, period) { Analytics.build(expenses, people, period) },
+                period = period,
+                onPeriodChange = { period = it },
+                modifier = content
+            )
             Screen.TRANSACTIONS -> TransactionsScreen(
                 expenses = expenses,
                 onEdit = { details ->
