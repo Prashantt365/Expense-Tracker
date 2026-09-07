@@ -3,10 +3,12 @@ package com.example.expensetracker.data
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
@@ -81,7 +83,42 @@ class PdfTextReader(private val context: Context) {
     private suspend fun recognise(bitmap: Bitmap): String = suspendCancellableCoroutine { continuation ->
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
             .process(InputImage.fromBitmap(bitmap, 0))
-            .addOnSuccessListener { if (continuation.isActive) continuation.resume(it.text) }
+            .addOnSuccessListener { if (continuation.isActive) continuation.resume(inReadingOrder(it)) }
             .addOnFailureListener { if (continuation.isActive) continuation.resumeWithException(it) }
+    }
+
+    /**
+     * Rebuilds the page as visual rows rather than taking [Text.getText] as it comes.
+     *
+     * ML Kit groups text into blocks by proximity, so a statement laid out in columns can come
+     * back as one block per column: every date, then every description, then every amount. That
+     * destroys the association between them. Grouping recognised lines by their vertical position
+     * and ordering each group left to right restores the row a reader actually sees, which is what
+     * the statement parser needs.
+     */
+    private fun inReadingOrder(text: Text): String {
+        val lines = text.textBlocks
+            .flatMap { it.lines }
+            .mapNotNull { line -> line.boundingBox?.let { it to line.text } }
+        if (lines.isEmpty()) return text.text
+
+        val rows = mutableListOf<MutableList<Pair<Rect, String>>>()
+        lines.sortedBy { (box, _) -> box.centerY() }.forEach { entry ->
+            val (box, _) = entry
+            val open = rows.lastOrNull()
+            val anchor = open?.first()?.first
+            // Two fragments belong to the same row when their centres sit within roughly half a
+            // line height of each other, which tolerates the baseline drift OCR introduces.
+            val tolerance = (box.height() * 0.6f).toInt().coerceAtLeast(6)
+            if (open != null && anchor != null && kotlin.math.abs(anchor.centerY() - box.centerY()) <= tolerance) {
+                open += entry
+            } else {
+                rows += mutableListOf(entry)
+            }
+        }
+
+        return rows.joinToString("\n") { row ->
+            row.sortedBy { (box, _) -> box.left }.joinToString("  ") { (_, value) -> value }
+        }
     }
 }

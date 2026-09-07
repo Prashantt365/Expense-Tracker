@@ -85,13 +85,37 @@ PdfRenderer only rasterises pages, it does not expose their text, so each page i
 through the same on-device OCR the receipt flow uses. That keeps the work offline and adds no
 dependency, at the cost of reading the page as an image.
 
-The parser reads by shape rather than by column, since layouts vary by issuer: a date near the
-start, one or more money figures, and whatever text lies between them. Where a row carries more
-than one figure the trailing one is treated as the running balance and dropped. Credits are
-detected and arrive unticked. Nothing is written until the review screen is confirmed, and rows
-that duplicate an existing expense are skipped on import.
+Two things make that workable on a real statement.
 
-The layouts it is tuned for are the common Indian bank and UPI statement shapes. If your statement
+**The page is rebuilt into visual rows.** ML Kit groups text into blocks by proximity, so a
+statement laid out in columns -- as the Google Pay transaction statement is, with Date & time,
+Transaction details and Amount side by side -- can come back as one block per column: every date,
+then every payee, then every amount. Reading the recognised text in the order it arrives would
+destroy the association between them. `PdfTextReader` instead groups recognised lines by vertical
+position and orders each group left to right, restoring the row a reader actually sees.
+
+**Transactions are read as records, not lines.** A bank statement puts a whole transaction on one
+line, but a Google Pay entry spreads across three: date above time, payee above the reference,
+amount off in its own column. A line beginning with a date opens a record, following lines join it,
+and the fields are pulled from the record as a whole.
+
+From there:
+
+- A currency marker makes even a bare integer safe to read as money, while an untagged figure needs
+  a grouping comma or two decimals. That keeps UPI reference numbers and account tails out of the
+  amount column.
+- Where a record carries several figures the trailing one is treated as a running balance and
+  dropped, so a bank row imports the payment rather than the balance.
+- The statement period and the Sent/Received summary tiles are skipped. The period row starts with
+  a date and carries two large figures, so without that it would import as a transaction.
+- Credits are detected and arrive unticked, and "Paid to" wins outright, so a payment to a shop
+  with "Credit" in its name is still a payment.
+- Times of day are kept, so imported rows sort correctly within a date.
+
+Nothing is written until the review screen is confirmed, and rows duplicating an existing expense
+are skipped on import.
+
+Tuned for the Google Pay transaction statement and common Indian bank and UPI layouts. If yours
 reads badly, the fix belongs in `StatementParser` and its unit tests.
 
 ## Contacts

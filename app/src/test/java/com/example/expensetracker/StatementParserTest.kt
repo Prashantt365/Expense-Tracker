@@ -121,6 +121,118 @@ class StatementParserTest {
         assertEquals(line, parse(line).single().rawLine)
     }
 
+    // --- Google Pay transaction statement ---------------------------------------------------
+    //
+    // Laid out as a table: Date & time | Transaction details | Amount. Once PdfTextReader has
+    // rebuilt the page into visual rows, each transaction arrives as a date/payee/amount row
+    // followed by its time and reference lines.
+
+    private val googlePayPage = """
+        Google Pay                                    Transaction statement
+                                                      8623002665, garjepg@gmail.com
+        Transaction statement period      Sent            Received
+        01 August 2026 - 31 August 2026   ₹46,821.76      ₹1,339.33
+        Date & time    Transaction details    Amount
+        03 Aug, 2026   Paid to Rapido    ₹80
+        12:14 PM   UPI Transaction ID: 127297424577
+        Paid by Union Bank of India 6254
+        03 Aug, 2026   Paid to KOLHAPURI MISAL CENTRE    ₹80
+        02:56 PM   UPI Transaction ID: 127306481309
+        Paid by Union Bank of India 6254
+        03 Aug, 2026   Paid to Sonu gupta    ₹66
+        08:09 PM   UPI Transaction ID: 127326194873
+        Paid by Union Bank of India 6254
+    """.trimIndent()
+
+    @Test fun `reads a Google Pay transaction statement`() {
+        val rows = parse(googlePayPage)
+        assertEquals(3, rows.size)
+        assertEquals(listOf(8000L, 8000L, 6600L), rows.map { it.amountPaise })
+        assertEquals(
+            listOf("Rapido", "KOLHAPURI MISAL CENTRE", "Sonu gupta"),
+            rows.map { it.description }
+        )
+        assertTrue("none of these are money in", rows.none { it.isCredit })
+    }
+
+    @Test fun `reads the Google Pay date format with a comma`() {
+        val row = parse(googlePayPage).first()
+        assertEquals(LocalDate.of(2026, 8, 3), dateOf(row.date!!))
+    }
+
+    @Test fun `keeps the time of day so imported rows order correctly`() {
+        val rows = parse(googlePayPage)
+        val times = rows.map { Instant.ofEpochMilli(it.date!!).atZone(zone).toLocalTime() }
+        assertEquals(java.time.LocalTime.of(12, 14), times[0])
+        assertEquals(java.time.LocalTime.of(14, 56), times[1])
+        assertEquals(java.time.LocalTime.of(20, 9), times[2])
+    }
+
+    @Test fun `ignores the Google Pay summary tiles and statement period`() {
+        // The period row starts with a date and carries two large figures, so without the range
+        // and summary rules it would import 46,821.76 as a transaction.
+        val amounts = parse(googlePayPage).map { it.amountPaise }
+        assertFalse(4682176L in amounts)
+        assertFalse(133933L in amounts)
+    }
+
+    @Test fun `does not mistake a UPI reference or a bank tail for the amount`() {
+        val amounts = parse(googlePayPage).map { it.amountPaise }
+        // 127297424577 as a reference, 6254 as the account tail.
+        assertTrue(amounts.all { it in listOf(8000L, 6600L) })
+    }
+
+    @Test fun `reads money received as a credit`() {
+        val rows = parse(
+            """
+            Date & time    Transaction details    Amount
+            04 Aug, 2026   Received from Sonu gupta    ₹500
+            09:15 AM   UPI Transaction ID: 127326194999
+            Paid by Union Bank of India 6254
+            """.trimIndent()
+        )
+        assertEquals(50000, rows.single().amountPaise)
+        assertEquals("Sonu gupta", rows.single().description)
+        assertTrue(rows.single().isCredit)
+    }
+
+    @Test fun `a payee whose name contains a credit word is still a payment`() {
+        val row = parse("05 Aug, 2026   Paid to Credit Union Store    ₹250").single()
+        assertFalse(row.isCredit)
+    }
+
+    @Test fun `carries on across page breaks and repeated headers`() {
+        val rows = parse(
+            googlePayPage + "\n" + """
+            Page 2 of 3
+            Google Pay                                    Transaction statement
+            Date & time    Transaction details    Amount
+            04 Aug, 2026   Paid to Swiggy    ₹432.50
+            07:41 PM   UPI Transaction ID: 127400000001
+            Paid by Union Bank of India 6254
+            05 Aug, 2026   Paid to Amazon    ₹1,299
+            11:02 AM   UPI Transaction ID: 127400000002
+            Paid by Union Bank of India 6254
+            """.trimIndent()
+        )
+        assertEquals(5, rows.size)
+        assertEquals(listOf(8000L, 8000L, 6600L, 43250L, 129900L), rows.map { it.amountPaise })
+        assertEquals("Amazon", rows.last().description)
+    }
+
+    @Test fun `a record does not swallow the transaction after it`() {
+        // Two payments to the same payee on the same day must stay separate rows.
+        val rows = parse(
+            """
+            03 Aug, 2026   Paid to Rapido    ₹80
+            12:14 PM   UPI Transaction ID: 127297424577
+            03 Aug, 2026   Paid to Rapido    ₹95
+            06:40 PM   UPI Transaction ID: 127297424999
+            """.trimIndent()
+        )
+        assertEquals(listOf(8000L, 9500L), rows.map { it.amountPaise })
+    }
+
     @Test fun `parses a realistic multi row statement`() {
         val rows = parse(
             """
