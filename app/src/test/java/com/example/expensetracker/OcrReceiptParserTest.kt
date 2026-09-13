@@ -210,4 +210,88 @@ class OcrReceiptParserTest {
         assertEquals("Bills", OcrReceiptParser.categorize("airtel recharge"))
         assertEquals("Other", OcrReceiptParser.categorize("gift for a friend"))
     }
+
+    /**
+     * Google Pay's current receipt carries an expanded details card under the headline: the
+     * funding bank over its account tail, then the payment restated in a sentence. Both of those
+     * are numbers competing with the amount, and the account tail arrives unmasked.
+     */
+    @Test fun `reads the amount past the expanded details card`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            To Swiggy
+            ₹182
+            pizza
+            Completed
+            12 Sept 2026, 9:24 pm
+            Central Bank of India
+            7493
+            Payment of ₹182 completed
+            Receiver's bank has confirmed deposit of money to Swiggy's bank account
+            UPI transaction ID
+            625574994023
+            To: Swiggy Limited
+            ••••gpay@okpayaxis
+            From: Mr PRASHANT GIRISH GARJE
+            Google Pay • ••••pg-2@okicici
+            Google transaction ID
+            CICAgPi4OKKjeg
+            """.trimIndent()
+        )
+        assertEquals("182", draft.amount)
+        assertEquals("Swiggy", draft.merchant)
+        assertEquals("pizza", draft.note)
+        assertEquals("Food", draft.category)
+    }
+
+    /** The reported bug: 7493 is the bank account, and it beat a ₹182 payment. */
+    @Test fun `does not mistake an unmasked bank account tail for the amount`() {
+        // The oversized headline glyph came back from ML Kit as a stray letter, which left the
+        // account tail as the only plain number on the receipt.
+        val draft = OcrReceiptParser.parse(
+            """
+            To Swiggy
+            z182
+            pizza
+            Completed
+            12 Sept 2026, 9:24 pm
+            Central Bank of India
+            7493
+            Payment of z182 completed
+            UPI transaction ID
+            625574994023
+            Google transaction ID
+            CICAgPi4OKKjeg
+            """.trimIndent()
+        )
+        assertEquals("182", draft.amount)
+        assertEquals("Swiggy", draft.merchant)
+        assertEquals("pizza", draft.note)
+    }
+
+    @Test fun `reads the amount from the confirmation sentence when the headline is lost`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            To Swiggy
+            Completed
+            Central Bank of India
+            7493
+            Payment of ₹182 completed
+            """.trimIndent()
+        )
+        assertEquals("182", draft.amount)
+    }
+
+    @Test fun `leaves the amount blank rather than offer a bank account tail`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            To Kirana Store
+            Completed
+            Central Bank of India
+            7493
+            """.trimIndent()
+        )
+        assertEquals("", draft.amount)
+        assertEquals("Kirana Store", draft.merchant)
+    }
 }

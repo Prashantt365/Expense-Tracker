@@ -23,13 +23,29 @@ object OcrReceiptParser {
     private val currencyAmount =
         Regex("(?:\u20B9|rs\\.?|inr)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)", RegexOption.IGNORE_CASE)
 
+    /** A line holding a number and nothing else: a headline amount, or an account tail. */
+    private val bareAmount = Regex("^([0-9][0-9,]*(?:\\.[0-9]{1,2})?)$")
+
     /**
-     * A line that is nothing but a number, allowing a single leading symbol for a currency glyph
-     * ML Kit's Latin model failed to recognise. Exactly one symbol is what separates a headline
-     * amount ("\u20B9450", "*450") from a masked account tail ("\u2022\u20225678").
+     * A number wearing a single leading character, which on a Google Pay receipt is the rupee
+     * glyph ML Kit failed to read. The oversized headline defeats the Latin model in both
+     * directions -- it comes back as a stray symbol ("*450") but just as often as a stray letter
+     * ("z182", "R182") -- so the character is matched loosely rather than by name.
+     *
+     * Exactly one character is what keeps a masked account tail ("\u2022\u20225678") out, and
+     * requiring it to sit flush against the digits is what keeps a label ("UPI 182") out.
      */
-    private val standaloneAmount =
-        Regex("^[^\\p{L}\\p{N}\\s]?\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)$")
+    private val glyphedAmount = Regex("^[^0-9\\s]\\s?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)$")
+
+    /**
+     * The amount restated in the confirmation sentence of the expanded details card,
+     * "Payment of \u20B9182 completed". It is a second reading of the same figure, set small
+     * enough that OCR tends to get it right on the receipts where the headline glyph defeats it.
+     */
+    private val paymentPhrase = Regex(
+        "\\b(?:payment|transfer)\\s+of\\s+[^0-9\\s]{0,2}([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\b",
+        RegexOption.IGNORE_CASE
+    )
 
     private val merchantInline =
         Regex("^(?:paid to|payment to|money sent to|sent to|to)[:\\s]+(.+)$", RegexOption.IGNORE_CASE)
@@ -96,6 +112,7 @@ object OcrReceiptParser {
 
     private fun findAmount(lines: List<String>, claimed: MutableSet<Int>): String {
         val tagged = mutableListOf<Candidate>()
+        val inferred = mutableListOf<Candidate>()
         val bare = mutableListOf<Candidate>()
         lines.forEachIndexed { index, line ->
             val matches = currencyAmount.findAll(line).toList()
@@ -103,15 +120,27 @@ object OcrReceiptParser {
                 matches.forEach { tagged += Candidate(index, it.groupValues[1].replace(",", "")) }
                 return@forEachIndexed
             }
-            val raw = standaloneAmount.find(line)?.groupValues?.get(1) ?: return@forEachIndexed
-            if (!looksLikeIdentifier(raw) && !followsIdentifierLabel(lines, index)) {
-                bare += Candidate(index, raw.replace(",", ""))
+            paymentPhrase.find(line)?.let {
+                inferred += Candidate(index, it.groupValues[1].replace(",", ""))
+                return@forEachIndexed
             }
+            val glyphed = glyphedAmount.find(line)?.groupValues?.get(1)
+            val raw = glyphed ?: bareAmount.find(line)?.groupValues?.get(1) ?: return@forEachIndexed
+            if (looksLikeIdentifier(raw) || followsIdentifierLabel(lines, index)) return@forEachIndexed
+            val candidate = Candidate(index, raw.replace(",", ""))
+            val tier = if (glyphed != null) inferred else bare
+            tier += candidate
         }
         // A currency-tagged figure is trustworthy, and on an itemised bill the largest one is the
-        // total. With no currency symbol anywhere the first bare number wins instead: that is the
-        // headline amount Google Pay prints above everything else.
-        val chosen = tagged.maxByOrNull { it.numeric } ?: bare.firstOrNull() ?: return ""
+        // total. Failing that, a figure still carrying some evidence of being an amount -- a
+        // mangled currency glyph, or the confirmation sentence -- beats a number standing on its
+        // own, which is as likely to be an account tail as a price. Within either weaker tier the
+        // first one wins: that is the headline Google Pay prints above everything else. Taking the
+        // largest instead would let a four-digit account tail outrank a two-digit payment.
+        val chosen = tagged.maxByOrNull { it.numeric }
+            ?: inferred.firstOrNull()
+            ?: bare.firstOrNull()
+            ?: return ""
         claimed += chosen.index
         return chosen.value
     }
@@ -120,10 +149,17 @@ object OcrReceiptParser {
     private fun looksLikeIdentifier(raw: String): Boolean =
         !raw.contains(',') && !raw.contains('.') && raw.length >= 7
 
+    /**
+     * Google Pay's expanded details card heads its funding-source row with the bank name and puts
+     * the account tail bare on the line below -- "Central Bank of India" over "7493", with none of
+     * the masking dots that would otherwise give it away. Digits under a bank are never a price.
+     */
     private fun followsIdentifierLabel(lines: List<String>, index: Int): Boolean {
         val previous = lines.getOrNull(index - 1)?.lowercase(Locale.ROOT) ?: return false
-        return listOf("transaction id", "reference", "ref no", "utr", "order", "account", "a/c")
-            .any(previous::contains)
+        return listOf(
+            "transaction id", "reference", "ref no", "utr", "order",
+            "account", "a/c", "bank", "card", "wallet"
+        ).any(previous::contains)
     }
 
     private fun findMerchant(lines: List<String>, claimed: MutableSet<Int>): String {
