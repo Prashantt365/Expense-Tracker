@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.Flow
 class ExpenseRepository(context: Context) {
 
     private val db = Room.databaseBuilder(context, AppDatabase::class.java, "spendwise.db")
-        .addMigrations(AppDatabase.MIGRATION_2_3)
+        .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
         // Version 1 predates anything worth keeping and never had a migration written for it.
         // Everything from 2 on carries real history and now migrates properly.
         .fallbackToDestructiveMigrationFrom(1)
@@ -19,6 +19,12 @@ class ExpenseRepository(context: Context) {
     private val categoryDao = db.categoryDao()
     private val personDao = db.personDao()
     private val attachments = AttachmentStore(context)
+
+    /** Exposed so the sync engine can be built over the same database this repository owns. */
+    val syncDao: SyncDao = db.syncDao()
+
+    val conflicts: Flow<List<SyncConflict>> = syncDao.observeConflicts()
+    val pendingUpload: Flow<Int> = syncDao.observePendingExpenses()
 
     val expenses: Flow<List<ExpenseDetails>> = expenseDao.observeAll()
     val categories: Flow<List<Category>> = categoryDao.observeAll()

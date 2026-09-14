@@ -11,6 +11,8 @@ import com.example.expensetracker.data.ExpenseRepository
 import com.example.expensetracker.data.ExpenseSplit
 import com.example.expensetracker.data.PdfTextReader
 import com.example.expensetracker.data.Person
+import com.example.expensetracker.sync.SyncEngine
+import com.example.expensetracker.sync.SyncOutcome
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -64,6 +66,36 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val categories = repository.categories.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val people = repository.people.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     val balances = repository.balances.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val syncEngine = SyncEngine(application, repository.syncDao)
+
+    val conflicts = repository.conflicts
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** Null until a sync has been run in this session, so nothing is claimed before it is true. */
+    private val _lastSync = MutableStateFlow<SyncOutcome?>(null)
+    val lastSync: StateFlow<SyncOutcome?> = _lastSync
+
+    private val _syncing = MutableStateFlow(false)
+    val syncing: StateFlow<Boolean> = _syncing
+
+    /**
+     * Syncing is never automatic-on-write. Every save has already landed locally, so batching the
+     * upload behind one explicit action keeps a flaky connection from turning each keystroke into
+     * a retry, and keeps the user in charge of when their data leaves the phone.
+     */
+    fun sync() {
+        if (_syncing.value) return
+        _syncing.value = true
+        viewModelScope.launch {
+            _lastSync.value = syncEngine.sync()
+            _syncing.value = false
+        }
+    }
+
+    fun resolveConflict(conflictId: Long, keepLocal: Boolean) = viewModelScope.launch {
+        syncEngine.resolve(conflictId, keepLocal)
+    }
 
     fun outstandingFor(personId: Long) = repository.outstandingFor(personId)
 

@@ -116,6 +116,42 @@ data class ExpenseSplit(
     override val syncedAt: Long? = null
 ) : Synced
 
+/** Which table a conflict is about. Stored as text so a new one cannot renumber the old ones. */
+enum class SyncedTable(val local: String) {
+    EXPENSE("expense"), PERSON("person"), CATEGORY("category"), SPLIT("split");
+
+    companion object {
+        fun of(stored: String): SyncedTable? = entries.firstOrNull { it.local == stored }
+    }
+}
+
+/**
+ * A row that changed on this phone and on the server since the two last agreed.
+ *
+ * Both versions are kept verbatim, as the JSON each side would have sent, rather than as a merged
+ * row. Until the user has chosen there is no correct row to store, and writing either one into the
+ * table would be the silent overwrite this whole mechanism exists to avoid. The local row stays
+ * exactly as it was, so a conflict left unresolved costs nothing: the phone goes on showing what
+ * its owner last typed.
+ */
+@Entity(
+    tableName = "sync_conflicts",
+    indices = [Index(value = ["entity", "remoteId"], unique = true)]
+)
+data class SyncConflict(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    /** One of [SyncedTable.local]. */
+    val entity: String,
+    val remoteId: String,
+    val localJson: String,
+    val remoteJson: String,
+    val localUpdatedAt: Long,
+    val remoteUpdatedAt: Long,
+    val detectedAt: Long
+) {
+    val table: SyncedTable? get() = SyncedTable.of(entity)
+}
+
 /**
  * Attachments stay on the device by design: the screenshots are the bulky part and the part the
  * user is least likely to want on a server, so they are the one thing reinstalling does lose.

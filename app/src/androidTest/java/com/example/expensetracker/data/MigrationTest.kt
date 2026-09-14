@@ -82,7 +82,7 @@ class MigrationTest {
 
     private fun openMigrated(): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .build()
 
     @Test fun keepsEveryRowAndSatisfiesRoomsOwnSchemaCheck() = runBlocking {
@@ -112,6 +112,61 @@ class MigrationTest {
             assertEquals("expected a uuid, got '$id'", 36, id.length)
             assertNotEquals("", id)
         }
+        db.close()
+    }
+
+    /**
+     * The jump is two versions, so both migrations run in turn on a database that started at 2.
+     * Nothing on an existing install will ever arrive at 4 any other way.
+     */
+    @Test fun carriesAVersionTwoDatabaseAllTheWayToTheConflictStore() = runBlocking {
+        createVersion2()
+        val db = openMigrated()
+        val sync = db.syncDao()
+
+        // Everything brought forward is unsynced, which is what offers it to the account on the
+        // first sync rather than leaving a pre-existing history stranded on the phone.
+        assertEquals(3, sync.expensesToPush().size)
+        assertEquals(2, sync.peopleToPush().size)
+        assertEquals(4, sync.splitsToPush().size)
+
+        sync.recordConflict(
+            SyncConflict(
+                entity = SyncedTable.EXPENSE.local,
+                remoteId = "e1",
+                localJson = "{}",
+                remoteJson = "{}",
+                localUpdatedAt = 1,
+                remoteUpdatedAt = 2,
+                detectedAt = 3
+            )
+        )
+        assertEquals(1, sync.observeConflicts().first().size)
+        db.close()
+    }
+
+    /** The same row disagreeing again must replace its entry rather than stack up another. */
+    @Test fun recordsOneConflictPerRowHoweverOftenItIsSeen() = runBlocking {
+        createVersion2()
+        val db = openMigrated()
+        val sync = db.syncDao()
+
+        repeat(3) { attempt ->
+            sync.recordConflict(
+                SyncConflict(
+                    entity = SyncedTable.EXPENSE.local,
+                    remoteId = "e1",
+                    localJson = "{}",
+                    remoteJson = """{"attempt":$attempt}""",
+                    localUpdatedAt = 1,
+                    remoteUpdatedAt = 2,
+                    detectedAt = attempt.toLong()
+                )
+            )
+        }
+        val held = sync.observeConflicts().first()
+        assertEquals(1, held.size)
+        assertEquals("""{"attempt":2}""", held.single().remoteJson)
         db.close()
     }
 

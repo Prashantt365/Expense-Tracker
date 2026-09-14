@@ -6,14 +6,18 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
-    entities = [Expense::class, Category::class, Person::class, ExpenseSplit::class, Attachment::class],
-    version = 3,
+    entities = [
+        Expense::class, Category::class, Person::class, ExpenseSplit::class, Attachment::class,
+        SyncConflict::class
+    ],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun expenseDao(): ExpenseDao
     abstract fun categoryDao(): CategoryDao
     abstract fun personDao(): PersonDao
+    abstract fun syncDao(): SyncDao
 
     companion object {
         val DEFAULT_CATEGORIES = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Other")
@@ -58,6 +62,29 @@ abstract class AppDatabase : RoomDatabase() {
                             "ON `$table` (`remoteId`)"
                     )
                 }
+            }
+        }
+
+        /**
+         * Somewhere to park a row that changed on both sides at once.
+         *
+         * The index is unique on the row a conflict is about, so the same disagreement found again
+         * on the next sync replaces the entry rather than stacking up another copy of it.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `sync_conflicts` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`entity` TEXT NOT NULL, `remoteId` TEXT NOT NULL, " +
+                        "`localJson` TEXT NOT NULL, `remoteJson` TEXT NOT NULL, " +
+                        "`localUpdatedAt` INTEGER NOT NULL, `remoteUpdatedAt` INTEGER NOT NULL, " +
+                        "`detectedAt` INTEGER NOT NULL)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_conflicts_entity_remoteId` " +
+                        "ON `sync_conflicts` (`entity`, `remoteId`)"
+                )
             }
         }
 

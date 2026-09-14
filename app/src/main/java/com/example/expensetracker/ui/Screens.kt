@@ -30,6 +30,7 @@ import com.example.expensetracker.data.ExpenseDetails
 import com.example.expensetracker.data.Person
 import com.example.expensetracker.data.PersonBalance
 import com.example.expensetracker.sync.Account
+import com.example.expensetracker.sync.SyncOutcome
 import kotlinx.coroutines.launch
 
 @Composable
@@ -203,6 +204,10 @@ fun SettingsScreen(
     val account = remember(context) { Account(context) }
     var session by remember { mutableStateOf(account.stored()) }
     var signingIn by remember { mutableStateOf(false) }
+    var showingConflicts by remember { mutableStateOf(false) }
+    val conflicts by vm.conflicts.collectAsState()
+    val syncing by vm.syncing.collectAsState()
+    val lastSync by vm.lastSync.collectAsState()
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -228,6 +233,46 @@ fun SettingsScreen(
                 }
             }
         )
+
+        if (session != null) {
+            Section("Backup")
+            Card(Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        when (val outcome = lastSync) {
+                            null -> "Not backed up yet in this session."
+                            is SyncOutcome.Done ->
+                                "Sent ${outcome.pushed}, received ${outcome.pulled}." +
+                                    if (outcome.conflicts > 0) " ${outcome.conflicts} need a decision." else ""
+                            is SyncOutcome.Offline -> "No connection. Your data is safe on this phone."
+                            is SyncOutcome.Failed -> outcome.message
+                            SyncOutcome.NotSignedIn -> "Sign in to back up."
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Button({ vm.sync() }, enabled = !syncing) {
+                        Text(if (syncing) "Backing up..." else "Back up now")
+                    }
+                }
+            }
+
+            if (conflicts.isNotEmpty()) {
+                Card(
+                    Modifier.fillMaxWidth().clickable { showingConflicts = true },
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(conflictSummary(conflicts.size), fontWeight = FontWeight.Bold)
+                        Text(
+                            "Nothing changes until you choose. Tap to review.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        }
 
         Section("Currency")
         Card(Modifier.fillMaxWidth().clickable { choosingCurrency = true }) {
@@ -305,6 +350,13 @@ fun SettingsScreen(
     if (choosingCurrency) CurrencyDialog({ choosingCurrency = false }) { picked ->
         AppCurrency.set(context, picked)
         choosingCurrency = false
+    }
+    if (showingConflicts && conflicts.isNotEmpty()) {
+        ConflictDialog(
+            conflicts = conflicts,
+            onResolve = { id, keepLocal -> vm.resolveConflict(id, keepLocal) },
+            onDismiss = { showingConflicts = false }
+        )
     }
     if (signingIn) {
         // Full screen rather than a dialog: the same surface the app opens with, so signing in
