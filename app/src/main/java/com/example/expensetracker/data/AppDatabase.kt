@@ -111,7 +111,7 @@ abstract class AppDatabase : RoomDatabase() {
                     db.execSQL(
                         "INSERT OR IGNORE INTO categories (name, sortOrder, remoteId, updatedAt) " +
                             "VALUES (?, ?, ($UUID_EXPRESSION), ?)",
-                        arrayOf(name, index, now)
+                        arrayOf<Any>(name, index, now)
                     )
                 }
             }
