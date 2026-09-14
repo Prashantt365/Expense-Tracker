@@ -26,6 +26,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.expensetracker.AppCurrency
 import com.example.expensetracker.ExpenseInput
 import com.example.expensetracker.data.Category
 import com.example.expensetracker.data.Expense
@@ -64,7 +65,7 @@ fun ExpenseEditor(
 
     // Preview the split live, using the same calculator that will run on save, so what the summary
     // shows and what gets stored can never drift apart.
-    val totalPaise = rupeesToPaise(draft.amount) ?: 0L
+    val totalPaise = amountToMinorUnits(draft.amount) ?: 0L
     val splitPreview = SplitCalculator.compute(totalPaise, draft.splitMode, draft.shares)
     val computedShares = (splitPreview as? SplitResult.Valid)
         ?.shares
@@ -118,7 +119,7 @@ fun ExpenseEditor(
                     OutlinedTextField(
                         draft.amount,
                         { draft = draft.copy(amount = it) },
-                        label = { Text("Amount (₹)") },
+                        label = { Text("Amount (${AppCurrency.currency.symbol})") },
                         singleLine = true,
                         isError = error != null,
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -322,7 +323,7 @@ fun ExpenseEditor(
         if (mode != SplitMode.EQUAL) OutlinedTextField(
             value,
             onChange,
-            label = { Text(if (mode == SplitMode.PERCENT) "Share %" else "Owes ₹") },
+            label = { Text(if (mode == SplitMode.PERCENT) "Share %" else "Owes ${AppCurrency.currency.symbol}") },
             singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
             modifier = Modifier.width(140.dp)

@@ -38,6 +38,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); enableEdgeToEdge()
+        // Before any composition, so the first frame already shows the right currency.
+        AppCurrency.load(this)
         consume(intent)
         setContent { MaterialTheme { SpendwiseApp(action, actionToken) } }
     }

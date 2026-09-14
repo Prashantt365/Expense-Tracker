@@ -9,6 +9,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.PictureAsPdf
@@ -18,9 +19,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.example.expensetracker.AppCurrency
 import com.example.expensetracker.ExpenseViewModel
 import com.example.expensetracker.data.Category
 import com.example.expensetracker.data.ExpenseDetails
@@ -138,14 +141,30 @@ fun SettleDialog(vm: ExpenseViewModel, balance: PersonBalance, onDismiss: () -> 
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (shares.isEmpty()) Text("Nothing outstanding.")
-                shares.forEach { share ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(share.merchant.ifBlank { share.category })
-                            Text(shortDate(share.paidAt), style = MaterialTheme.typography.labelSmall)
+                else {
+                    Text(
+                        "${shares.size} unsettled share${if (shares.size == 1) "" else "s"}, " +
+                            "${money(shares.sumOf { it.amountPaise })} in total",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    // The list is capped and scrolls within itself, which is what keeps "Settle
+                    // all" on screen. An unbounded column grew the dialog past the window on
+                    // anyone with more than a handful of shares, pushing the buttons out of reach
+                    // on exactly the balances that most needed clearing in one go.
+                    Column(
+                        Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        shares.forEach { share ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(share.merchant.ifBlank { share.category })
+                                    Text(shortDate(share.paidAt), style = MaterialTheme.typography.labelSmall)
+                                }
+                                Text(money(share.amountPaise), fontWeight = FontWeight.SemiBold)
+                                TextButton({ vm.settleShare(share.splitId) }) { Text("Settle") }
+                            }
                         }
-                        Text(money(share.amountPaise), fontWeight = FontWeight.SemiBold)
-                        TextButton({ vm.settleShare(share.splitId) }) { Text("Settle") }
                     }
                 }
             }
@@ -176,6 +195,8 @@ fun SettingsScreen(
     var editingPerson by remember { mutableStateOf<Person?>(null) }
     var addingCategory by remember { mutableStateOf(false) }
     var addingPerson by remember { mutableStateOf(false) }
+    var choosingCurrency by remember { mutableStateOf(false) }
+    val context = LocalContext.current
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -187,6 +208,21 @@ fun SettingsScreen(
                     Text(it, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                     TextButton({ message = null }) { Text("OK") }
                 }
+            }
+        }
+
+        Section("Currency")
+        Card(Modifier.fillMaxWidth().clickable { choosingCurrency = true }) {
+            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(AppCurrency.currency.displayName, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Set from the region this phone is configured for. Changing it relabels " +
+                            "amounts already recorded rather than converting them.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Text(AppCurrency.currency.symbol, style = MaterialTheme.typography.titleLarge)
             }
         }
 
@@ -248,6 +284,10 @@ fun SettingsScreen(
         Spacer(Modifier.height(24.dp))
     }
 
+    if (choosingCurrency) CurrencyDialog({ choosingCurrency = false }) { picked ->
+        AppCurrency.set(context, picked)
+        choosingCurrency = false
+    }
     if (addingCategory) NameDialog("New category", "", { addingCategory = false }) {
         vm.addCategory(it); addingCategory = false
     }
@@ -283,5 +323,49 @@ private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, on
         },
         confirmButton = { Button({ onConfirm(name) }, enabled = name.isNotBlank()) { Text("Save") } },
         dismissButton = { TextButton(onDismiss) { Text("Cancel") } }
+    )
+}
+
+/**
+ * The full ISO 4217 list is long enough that it has to be searchable and has to scroll inside a
+ * bounded box, or the dialog grows past the window and takes its buttons with it.
+ */
+@Composable
+private fun CurrencyDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
+    val all = remember { AppCurrency.all() }
+    var query by remember { mutableStateOf("") }
+    val shown = remember(query, all) {
+        if (query.isBlank()) all
+        else all.filter { (code, name) -> code.contains(query, true) || name.contains(query, true) }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Currency") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    query,
+                    { query = it },
+                    label = { Text("Search") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (shown.isEmpty()) Text("No currency matches that.")
+                LazyColumn(Modifier.heightIn(max = 320.dp)) {
+                    items(shown, key = { it.first }) { (code, name) ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { onPick(code) }.padding(vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(code, Modifier.width(48.dp), fontWeight = FontWeight.Bold)
+                            Text(name, Modifier.weight(1f))
+                            if (code == AppCurrency.code) Icon(Icons.Default.Check, "Selected")
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onDismiss) { Text("Close") } }
     )
 }
