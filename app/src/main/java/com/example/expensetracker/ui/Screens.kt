@@ -29,6 +29,8 @@ import com.example.expensetracker.data.Category
 import com.example.expensetracker.data.ExpenseDetails
 import com.example.expensetracker.data.Person
 import com.example.expensetracker.data.PersonBalance
+import com.example.expensetracker.sync.Account
+import kotlinx.coroutines.launch
 
 @Composable
 fun TransactionsScreen(
@@ -197,6 +199,10 @@ fun SettingsScreen(
     var addingPerson by remember { mutableStateOf(false) }
     var choosingCurrency by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val account = remember(context) { Account(context) }
+    var session by remember { mutableStateOf(account.stored()) }
+    var signingIn by remember { mutableStateOf(false) }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -210,6 +216,18 @@ fun SettingsScreen(
                 }
             }
         }
+
+        Section("Account")
+        AccountCard(
+            email = session?.email,
+            onSignIn = { signingIn = true },
+            onSignOut = {
+                scope.launch {
+                    account.signOut()
+                    session = null
+                }
+            }
+        )
 
         Section("Currency")
         Card(Modifier.fillMaxWidth().clickable { choosingCurrency = true }) {
@@ -287,6 +305,15 @@ fun SettingsScreen(
     if (choosingCurrency) CurrencyDialog({ choosingCurrency = false }) { picked ->
         AppCurrency.set(context, picked)
         choosingCurrency = false
+    }
+    if (signingIn) {
+        // Full screen rather than a dialog: the same surface the app opens with, so signing in
+        // later looks like signing in at the start.
+        AuthScreen(
+            account = account,
+            onSignedIn = { session = account.stored(); signingIn = false },
+            onSkip = { signingIn = false }
+        )
     }
     if (addingCategory) NameDialog("New category", "", { addingCategory = false }) {
         vm.addCategory(it); addingCategory = false

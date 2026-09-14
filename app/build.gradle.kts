@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -16,6 +18,23 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // Supabase, read from local.properties so the repo never carries a project of its own.
+        // A clone without them builds fine and simply stays offline, which is the right outcome
+        // for a fork or a CI runner that has no backend to talk to.
+        //
+        // The publishable key is not a secret -- it ships inside the APK and is meant to be seen.
+        // Row level security on the tables is what actually keeps one account out of another's
+        // data, so this is tidiness, not protection.
+        val supabase = Properties().apply {
+            rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
+        }
+        buildConfigField("String", "SUPABASE_URL", "\"${supabase.getProperty("supabase.url", "")}\"")
+        buildConfigField(
+            "String",
+            "SUPABASE_ANON_KEY",
+            "\"${supabase.getProperty("supabase.anonKey", "")}\""
+        )
     }
 
     buildFeatures { compose = true; buildConfig = true }
@@ -84,6 +103,10 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")
+    // The platform's org.json is a stub in a JVM unit test, every method throwing. This is the
+    // real thing, on the test classpath only, so the Supabase response parsers can be tested
+    // against the payloads the server actually sends rather than only at runtime on a device.
+    testImplementation("org.json:json:20250107")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test:core-ktx:1.6.1")
     androidTestImplementation("androidx.test:runner:1.6.2")

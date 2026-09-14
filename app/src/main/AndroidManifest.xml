@@ -7,6 +7,14 @@
     -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
+    <!--
+      Signing in and backing up transactions. The app works fully offline without it: everything
+      is written to the local database first and syncing is what happens afterwards, so a refused
+      or absent connection costs the backup, never the data.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <application
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"

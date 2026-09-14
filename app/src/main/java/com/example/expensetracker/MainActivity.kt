@@ -9,9 +9,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.IntentCompat
+import com.example.expensetracker.sync.Account
+import com.example.expensetracker.ui.AuthScreen
 import com.example.expensetracker.ui.SpendwiseApp
 
 /** What the app was asked to do on launch, whether by a share or a launcher shortcut. */
@@ -41,7 +45,27 @@ class MainActivity : ComponentActivity() {
         // Before any composition, so the first frame already shows the right currency.
         AppCurrency.load(this)
         consume(intent)
-        setContent { MaterialTheme { SpendwiseApp(action, actionToken) } }
+        val account = Account(this)
+        setContent {
+            MaterialTheme {
+                // Signing in is offered on a cold start and can be dismissed for the session. The
+                // app is usable offline by design, so the account gates the backup, not the app;
+                // a shared receipt waiting in [action] is applied once this clears either way,
+                // because SpendwiseApp reads it when it first composes.
+                var signedIn by remember { mutableStateOf(account.stored() != null) }
+                var dismissed by rememberSaveable { mutableStateOf(false) }
+
+                if (signedIn || dismissed) {
+                    SpendwiseApp(action, actionToken)
+                } else {
+                    AuthScreen(
+                        account = account,
+                        onSignedIn = { signedIn = true },
+                        onSkip = { dismissed = true }
+                    )
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); consume(intent) }
