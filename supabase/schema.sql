@@ -108,7 +108,16 @@ begin
 end $$;
 
 -- How many people have registered, and when they last signed in.
+--
+-- A view over auth.users runs with its owner's rights, so row level security does not apply to it
+-- and the grants are the only thing deciding who may read it. Left as created, anon could read it
+-- -- and anon is the key inside the APK, which anybody can unpack. The count is not personal data,
+-- but it is nobody's business but yours, so both app-facing roles are revoked and only the service
+-- role, which never leaves a server, is left able to select from it.
 create or replace view public.user_counts as
   select count(*) as registered,
          count(*) filter (where last_sign_in_at > now() - interval '30 days') as active_30d
   from auth.users;
+
+revoke all on public.user_counts from anon, authenticated;
+grant select on public.user_counts to service_role;
