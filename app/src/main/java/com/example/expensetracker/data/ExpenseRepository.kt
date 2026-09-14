@@ -8,9 +8,10 @@ import kotlinx.coroutines.flow.Flow
 class ExpenseRepository(context: Context) {
 
     private val db = Room.databaseBuilder(context, AppDatabase::class.java, "spendwise.db")
-        // No migrations are written yet, so bump AppDatabase.version and add one before shipping a
-        // schema change to anyone whose history matters -- this recreates the database instead.
-        .fallbackToDestructiveMigration()
+        .addMigrations(AppDatabase.MIGRATION_2_3)
+        // Version 1 predates anything worth keeping and never had a migration written for it.
+        // Everything from 2 on carries real history and now migrates properly.
+        .fallbackToDestructiveMigrationFrom(1)
         .addCallback(AppDatabase.seedCategories)
         .build()
 
@@ -51,60 +52,102 @@ class ExpenseRepository(context: Context) {
         newAttachments: List<Uri>,
         removedAttachmentIds: List<Long> = emptyList()
     ): Long {
+        val now = System.currentTimeMillis()
         val id = if (expense.id == 0L) {
             expenseDao.insert(expense)
         } else {
-            expenseDao.update(expense)
+            // The editor builds a fresh Expense on every save, which would mint a fresh remoteId
+            // and orphan the row the server already holds. The stored identity survives an edit.
+            val stored = expenseDao.byId(expense.id)
+            expenseDao.update(
+                expense.copy(
+                    remoteId = stored?.remoteId ?: expense.remoteId,
+                    updatedAt = now,
+                    syncedAt = null
+                )
+            )
             expense.id
         }
 
         expenseDao.clearSplits(id)
-        val owned = shares.filter { it.amountPaise > 0 }.map { it.copy(expenseId = id) }
+        val owned = shares.filter { it.amountPaise > 0 }.map { it.copy(expenseId = id, updatedAt = now) }
         if (owned.isNotEmpty()) expenseDao.insertSplits(owned)
 
         if (removedAttachmentIds.isNotEmpty()) {
-            val existing = expenseDao.attachmentsFor(id)
-            attachments.delete(existing.filter { it.id in removedAttachmentIds }.map { it.path })
+            val held = expenseDao.attachmentsFor(id)
+            attachments.delete(held.filter { it.id in removedAttachmentIds }.map { it.path })
             expenseDao.deleteAttachments(removedAttachmentIds)
         }
 
         val copied = newAttachments.mapNotNull { uri ->
-            attachments.copyIn(uri)?.let { Attachment(expenseId = id, path = it, addedAt = System.currentTimeMillis()) }
+            attachments.copyIn(uri)?.let { Attachment(expenseId = id, path = it, addedAt = now) }
         }
         if (copied.isNotEmpty()) expenseDao.insertAttachments(copied)
         return id
     }
 
+    /**
+     * The row is marked deleted rather than removed, so that the deletion can reach other devices.
+     * The screenshots go for good either way: they never leave this phone, so nothing is waiting
+     * on them and keeping them would only hold on to the bulkiest part of a deleted expense.
+     */
     suspend fun delete(expense: Expense) {
-        // Room cascades the rows; the image files need removing by hand.
-        attachments.delete(expenseDao.attachmentsFor(expense.id).map { it.path })
-        expenseDao.delete(expense)
+        val held = expenseDao.attachmentsFor(expense.id)
+        attachments.delete(held.map { it.path })
+        expenseDao.deleteAttachments(held.map { it.id })
+        expenseDao.tombstone(expense.id, System.currentTimeMillis())
     }
 
     suspend fun settleShare(splitId: Long) = expenseDao.settleShare(splitId, System.currentTimeMillis())
     suspend fun settleEverything(personId: Long) = expenseDao.settleEverything(personId, System.currentTimeMillis())
-    suspend fun reopenEverything(personId: Long) = expenseDao.reopenEverything(personId)
+    suspend fun reopenEverything(personId: Long) = expenseDao.reopenEverything(personId, System.currentTimeMillis())
 
-    suspend fun addCategory(name: String) =
-        categoryDao.insert(Category(name = name.trim(), sortOrder = Int.MAX_VALUE))
+    /**
+     * A deleted name still occupies the unique index, so adding it back has to revive that row.
+     * Inserting beside it would be ignored on conflict and the add would silently do nothing.
+     */
+    suspend fun addCategory(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        val buried = categoryDao.deletedByName(trimmed)
+        if (buried != null) {
+            categoryDao.update(buried.copy(deletedAt = null, updatedAt = stamp(), syncedAt = null))
+            return
+        }
+        categoryDao.insert(Category(name = trimmed, sortOrder = Int.MAX_VALUE))
+    }
 
     suspend fun renameCategory(category: Category, newName: String) {
         val trimmed = newName.trim()
         if (trimmed.isEmpty() || trimmed == category.name) return
-        categoryDao.update(category.copy(name = trimmed))
-        categoryDao.renameOnExpenses(category.name, trimmed)
+        val now = stamp()
+        categoryDao.update(category.copy(name = trimmed, updatedAt = now, syncedAt = null))
+        categoryDao.renameOnExpenses(category.name, trimmed, now)
     }
 
-    suspend fun deleteCategory(category: Category) = categoryDao.delete(category)
+    suspend fun deleteCategory(category: Category) = categoryDao.tombstone(category.id, stamp())
+
     suspend fun categoryUsage(name: String) = categoryDao.expenseCount(name)
 
-    suspend fun addPerson(name: String) = personDao.insert(Person(name = name.trim()))
-    suspend fun renamePerson(person: Person, newName: String) {
-        val trimmed = newName.trim()
-        if (trimmed.isNotEmpty() && trimmed != person.name) personDao.update(person.copy(name = trimmed))
+    suspend fun addPerson(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        val buried = personDao.deletedByName(trimmed)
+        if (buried != null) {
+            personDao.update(buried.copy(deletedAt = null, updatedAt = stamp(), syncedAt = null))
+            return
+        }
+        personDao.insert(Person(name = trimmed))
     }
 
-    suspend fun deletePerson(person: Person) = personDao.delete(person)
+    suspend fun renamePerson(person: Person, newName: String) {
+        val trimmed = newName.trim()
+        if (trimmed.isNotEmpty() && trimmed != person.name) {
+            personDao.update(person.copy(name = trimmed, updatedAt = stamp(), syncedAt = null))
+        }
+    }
+
+    suspend fun deletePerson(person: Person) = personDao.tombstone(person.id, stamp())
     suspend fun personOutstandingCount(id: Long) = personDao.outstandingCount(id)
 
     /** Bulk import from a statement. Returns how many rows were actually written. */
@@ -125,11 +168,21 @@ class ExpenseRepository(context: Context) {
     suspend fun addPeople(names: List<String>): Int {
         var added = 0
         names.forEach { name ->
-            // insert ignores on conflict, so a -1 means the name was already taken.
-            if (personDao.insert(Person(name = name.trim())) != -1L) added++
+            val trimmed = name.trim()
+            if (trimmed.isEmpty()) return@forEach
+            val buried = personDao.deletedByName(trimmed)
+            if (buried != null) {
+                personDao.update(buried.copy(deletedAt = null, updatedAt = stamp(), syncedAt = null))
+                added++
+            } else if (personDao.insert(Person(name = trimmed)) != -1L) {
+                // insert ignores on conflict, so a -1 means the name was already taken.
+                added++
+            }
         }
         return added
     }
+
+    private fun stamp() = System.currentTimeMillis()
 
     private companion object {
         /** Same amount to the same payee inside a day reads as a re-entry rather than a repeat buy. */

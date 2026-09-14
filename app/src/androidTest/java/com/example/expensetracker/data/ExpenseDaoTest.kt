@@ -115,17 +115,30 @@ class ExpenseDaoTest {
         assertEquals(30000, balances.single { it.personId == priya }.owedPaise)
     }
 
-    @Test fun deletingAnExpenseCascadesToItsSplitsAndAttachments() = runBlocking {
+    /**
+     * Deleting marks the row so the removal can be pushed to another device, which means the row
+     * outlives the delete and every read has to be the thing that hides it. The splits are still
+     * physically there; what matters is that nothing surfaces them.
+     */
+    @Test fun deletingAnExpenseHidesItAndEverythingCountingOnIt() = runBlocking {
         val rahul = people.insert(Person(name = "Rahul"))
         val id = dao.insert(expense())
         dao.insertSplits(listOf(ExpenseSplit(expenseId = id, personId = rahul, amountPaise = 20000)))
-        dao.insertAttachments(listOf(Attachment(expenseId = id, path = "/tmp/x.jpg", addedAt = now)))
 
-        dao.delete(dao.byId(id)!!)
+        dao.tombstone(id, now)
 
+        assertEquals(0, dao.observeAll().first().count { it.expense.id == id })
         assertEquals(0, dao.observeOutstanding(rahul).first().size)
-        assertEquals(0, dao.attachmentsFor(id).size)
         assertEquals(0, dao.observeBalances().first().single { it.personId == rahul }.owedPaise)
+        // The row is still on disk, carrying the mark that will travel.
+        assertEquals(now, dao.byId(id)!!.deletedAt)
+    }
+
+    @Test fun aDeletedExpenseStopsBlockingItsOwnDuplicate() = runBlocking {
+        val first = dao.insert(expense(merchant = "Swiggy", amountPaise = 18200))
+        dao.tombstone(first, now)
+        val again = expense(merchant = "Swiggy", amountPaise = 18200)
+        assertEquals(null, dao.findSimilar(again.amountPaise, again.merchant, again.paidAt, 86_400_000L, 0))
     }
 
     @Test fun expenseDetailsCarriesItsSplitsAndAttachments() = runBlocking {
