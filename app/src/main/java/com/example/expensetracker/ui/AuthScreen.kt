@@ -16,6 +16,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -43,7 +44,80 @@ import kotlinx.coroutines.launch
  */
 private const val MIN_PASSWORD = 6
 
-private enum class Mode { SIGN_IN, SIGN_UP }
+enum class AuthMode { SIGN_IN, SIGN_UP }
+
+/**
+ * The first thing a new install shows: three choices, stated plainly, before any form.
+ *
+ * Opening straight onto a password field asks somebody who has never seen the app to commit to an
+ * account before they know what it is for, and buries "no thanks" under a form they have to read
+ * past. The three routes are equally weighted here because they genuinely are alternatives --
+ * everything is written to this phone first, so an account is a backup rather than a licence to
+ * use the app.
+ */
+@Composable
+fun WelcomeScreen(
+    onSignIn: () -> Unit,
+    onCreateAccount: () -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Spacer(Modifier.height(48.dp))
+        Text("Spendwise", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text(
+            "Track what you spend, split what you share, and settle up.",
+            style = MaterialTheme.typography.bodyLarge
+        )
+        Spacer(Modifier.height(12.dp))
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("With an account", fontWeight = FontWeight.Bold)
+                Text(
+                    "Your transactions are backed up and come back on any phone, including this " +
+                        "one after a reinstall.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        Button(onCreateAccount, Modifier.fillMaxWidth(), enabled = Supabase.isConfigured) {
+            Text("Create an account")
+        }
+        OutlinedButton(onSignIn, Modifier.fillMaxWidth(), enabled = Supabase.isConfigured) {
+            Text("Sign in")
+        }
+
+        if (!Supabase.isConfigured) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)
+            ) {
+                Text(
+                    "This build has no Supabase project configured, so accounts are unavailable. " +
+                        "Set supabase.url and supabase.anonKey in local.properties.",
+                    Modifier.padding(12.dp),
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+        }
+
+        Spacer(Modifier.height(4.dp))
+        TextButton(onSkip, Modifier.fillMaxWidth()) { Text("Continue without an account") }
+        Text(
+            "Everything stays on this phone. You can sign in later from Settings, and back up to " +
+                "a file at any time.",
+            style = MaterialTheme.typography.bodySmall
+        )
+        Spacer(Modifier.height(24.dp))
+    }
+}
 
 /**
  * Signing in, so that a reinstall or a second phone finds the same transactions.
@@ -58,10 +132,12 @@ fun AuthScreen(
     account: Account,
     onSignedIn: () -> Unit,
     onSkip: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    initialMode: AuthMode = AuthMode.SIGN_IN,
+    onBack: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
-    var mode by remember { mutableStateOf(Mode.SIGN_IN) }
+    var mode by remember { mutableStateOf(initialMode) }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -76,13 +152,13 @@ fun AuthScreen(
         busy = true
         scope.launch {
             when (mode) {
-                Mode.SIGN_IN -> when (val result = account.signIn(email, password)) {
+                AuthMode.SIGN_IN -> when (val result = account.signIn(email, password)) {
                     is Response.Ok -> onSignedIn()
                     is Response.Rejected -> error = result.message
                     is Response.Offline -> error = "No connection. You can keep using the app offline."
                 }
 
-                Mode.SIGN_UP -> when (val result = account.signUp(email, password)) {
+                AuthMode.SIGN_UP -> when (val result = account.signUp(email, password)) {
                     is SignUpResult.SignedIn -> onSignedIn()
                     is SignUpResult.NeedsEmailConfirmation -> confirmationSentTo = result.email
                     is SignUpResult.Failed -> error = result.message
@@ -111,7 +187,7 @@ fun AuthScreen(
             Text("We sent a confirmation link to $sentTo. Open it, then sign in.")
             Button({
                 confirmationSentTo = null
-                mode = Mode.SIGN_IN
+                mode = AuthMode.SIGN_IN
                 password = ""
             }, Modifier.fillMaxWidth()) { Text("Back to sign in") }
             TextButton(onSkip, Modifier.fillMaxWidth()) { Text("Continue without an account") }
@@ -119,7 +195,7 @@ fun AuthScreen(
         }
 
         Text(
-            if (mode == Mode.SIGN_IN) {
+            if (mode == AuthMode.SIGN_IN) {
                 "Sign in and your transactions come back on any phone."
             } else {
                 "Create an account and your transactions survive a reinstall."
@@ -168,7 +244,7 @@ fun AuthScreen(
                 imeAction = ImeAction.Done
             ),
             supportingText = {
-                if (mode == Mode.SIGN_UP) Text("At least $MIN_PASSWORD characters")
+                if (mode == AuthMode.SIGN_UP) Text("At least $MIN_PASSWORD characters")
             },
             isError = password.isNotEmpty() && password.length < MIN_PASSWORD,
             modifier = Modifier.fillMaxWidth()
@@ -186,23 +262,26 @@ fun AuthScreen(
             if (busy) {
                 CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
             } else {
-                Text(if (mode == Mode.SIGN_IN) "Sign in" else "Create account")
+                Text(if (mode == AuthMode.SIGN_IN) "Sign in" else "Create account")
             }
         }
 
         TextButton(
             {
-                mode = if (mode == Mode.SIGN_IN) Mode.SIGN_UP else Mode.SIGN_IN
+                mode = if (mode == AuthMode.SIGN_IN) AuthMode.SIGN_UP else AuthMode.SIGN_IN
                 error = null
             },
             Modifier.fillMaxWidth(),
             enabled = !busy
         ) {
             Text(
-                if (mode == Mode.SIGN_IN) "No account yet? Create one" else "Already registered? Sign in"
+                if (mode == AuthMode.SIGN_IN) "No account yet? Create one" else "Already registered? Sign in"
             )
         }
 
+        onBack?.let {
+            TextButton(it, Modifier.fillMaxWidth(), enabled = !busy) { Text("Back") }
+        }
         TextButton(onSkip, Modifier.fillMaxWidth(), enabled = !busy) {
             Text("Continue without an account")
         }

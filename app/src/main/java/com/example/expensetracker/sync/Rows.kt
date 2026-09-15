@@ -190,7 +190,15 @@ enum class Merge {
     CONFLICT,
 
     /** Local is unchanged and no newer, or local holds edits the push will carry. */
-    SKIP
+    SKIP,
+
+    /**
+     * The row could not be written yet -- a split whose expense has not arrived, or a row the
+     * local schema refused. Never returned by [mergeDecision]: it is what the engine reports when
+     * the write itself does not go through, and it is what holds the watermark back so the row is
+     * offered again next time rather than stepped over.
+     */
+    BLOCKED
 }
 
 /**

@@ -8,6 +8,9 @@ captures
 .cxx
 .kotlin
 
+# Local machine configuration -- never commit, it holds absolute SDK paths
+# local.properties
+
 # IDE
 .idea/
 *.iml

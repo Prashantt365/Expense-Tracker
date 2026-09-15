@@ -20,6 +20,51 @@ An offline-first Android expense tracker that supports manual entry and receipt 
 - Import transactions from a bank or UPI statement PDF, reviewed row by row before anything saves
 - Launcher shortcuts for Add, Split, Import and Balances, each pinnable to the home screen
 - Add people from phone contacts, with near-duplicate names flagged rather than silently merged
+- An optional account, so transactions survive a reinstall and reach a second phone — backed up
+  automatically, restorable on demand, and skippable entirely
+- A local backup file that needs no account and no connection, and can be imported back
+
+## Accounts, backup and restore
+
+The app opens on three choices — create an account, sign in, or continue without one — and then
+asks once which currency to show amounts in. All three routes lead to the same app: every write
+lands in the local database first, so an account is a backup rather than a licence to use
+Spendwise, and losing your connection costs you the backup and never the data.
+
+**Automatic backup is on by default.** Anything recorded or edited is sent a few seconds later,
+and once more when the app opens. The switch is in Settings for anybody who would rather send
+their data on their own schedule; the manual *Back up now* button is always there either way.
+
+**Restore** reads the whole of an account's history back down, ignoring how far the incremental
+sync thinks it has got. That is the button to use on a freshly reinstalled app or a new phone.
+Nothing local is discarded by it: rows here that the server has not seen are kept and sent up.
+
+**Back up locally** writes every transaction, person and category to a file you choose, and
+**Import file** merges one back in. Rows are matched by the id they carry rather than by their
+position, so a file taken on one phone imports cleanly onto another, and importing the same file
+twice changes nothing. Deletions travel as deletions, so an import cannot resurrect what you
+removed before taking the backup. Receipts and attachments are in neither backup: they are the
+bulky part, and they stay on the device by design.
+
+To enable accounts, create a Supabase project, run `supabase/schema.sql` in its SQL editor, and put
+the project URL and publishable (anon) key in `local.properties`:
+
+```
+supabase.url=https://<project>.supabase.co
+supabase.anonKey=<anon key>
+```
+
+A build without those stays wholly offline and hides the account screens; the local backup file
+still works. The anon key is meant to ship inside the APK — row level security on every table, not
+the key, is what keeps one account out of another's data.
+
+`schema.sql` is re-runnable: applying it twice changes nothing, so run it again after pulling
+changes. Alongside the four data tables it creates `public.profiles`, one row per registered user
+carrying the address they registered with and an `auth_completed` flag that is true once Supabase
+Auth has fully accepted them. Both are written by a trigger on `auth.users` rather than by the app,
+and the same goes for the `user_email` column on each data table: an email a client could set is an
+email a client could set to somebody else's, and a "verified" flag a client could raise would mean
+nothing at all.
 
 ## Build
 
@@ -143,10 +188,15 @@ RELEASE_KEY_PASSWORD=...
 
 ## Schema changes
 
-The database has no migrations: `fallbackToDestructiveMigration` recreates it whenever the version
-changes. Write a real `Migration` before shipping a schema change to anyone whose history matters.
+Versions 2 onwards migrate properly — see `MIGRATION_2_3` and `MIGRATION_3_4` in `AppDatabase`.
+Only version 1 predates anything worth keeping and is still dropped and rebuilt. Write a real
+`Migration` for anything new; a destructive fallback now costs somebody their history.
+
 Default categories are seeded in `onOpen` whenever the table is found empty, which is the only hook
-that covers both a fresh install and that rebuild.
+that covers both a fresh install and a rebuild. Those seeded rows are also why the first sync after
+a reinstall has to reconcile identities by name: the account already holds a category called Food,
+the fresh install has just made its own, and inserting the pulled one beside it would break the
+unique index on the name.
 
 ## Privacy
 

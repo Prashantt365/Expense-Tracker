@@ -1,5 +1,7 @@
 package com.example.expensetracker.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -11,10 +13,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.CloudDownload
 import androidx.compose.material.icons.filled.Contacts
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -27,6 +32,7 @@ import com.example.expensetracker.AppCurrency
 import com.example.expensetracker.ExpenseViewModel
 import com.example.expensetracker.data.Category
 import com.example.expensetracker.data.ExpenseDetails
+import com.example.expensetracker.data.LocalBackup
 import com.example.expensetracker.data.Person
 import com.example.expensetracker.data.PersonBalance
 import com.example.expensetracker.sync.Account
@@ -205,9 +211,39 @@ fun SettingsScreen(
     var session by remember { mutableStateOf(account.stored()) }
     var signingIn by remember { mutableStateOf(false) }
     var showingConflicts by remember { mutableStateOf(false) }
+    var restoreConfirm by remember { mutableStateOf(false) }
     val conflicts by vm.conflicts.collectAsState()
     val syncing by vm.syncing.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
+    val lastSyncAt by vm.lastSyncAt.collectAsState()
+    val autoBackup by vm.autoBackup.collectAsState()
+    val fileOutcome by vm.fileOutcome.collectAsState()
+
+    // CreateDocument picks where the file goes; OpenDocument picks which one comes back. Both hand
+    // back a Uri rather than a path, which is why the reading and writing live behind BackupFiles
+    // rather than in java.io.
+    val backupFilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(LocalBackup.MIME)
+    ) { uri -> uri?.let(vm::backupToFile) }
+
+    // The wildcard sits beside the JSON type because plenty of file providers hand a .json file
+    // back as application/octet-stream, and a picker that greys out the user's own backup is
+    // worse than one that lets them pick something we then refuse by name.
+    val importFilePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> uri?.let(vm::importBackupFile) }
+
+    val fileNotice = when (val outcome = fileOutcome) {
+        null -> null
+        is ExpenseViewModel.FileOutcome.Exported ->
+            "Backed up ${outcome.expenses} transaction${if (outcome.expenses == 1) "" else "s"} to the file."
+        is ExpenseViewModel.FileOutcome.Imported -> with(outcome.result) {
+            if (total == 0) "Nothing new in that file: it is all already here."
+            else "Imported $expenses transaction${if (expenses == 1) "" else "s"}, " +
+                "$people people and $categories categories."
+        }
+        is ExpenseViewModel.FileOutcome.Failed -> outcome.message
+    }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
@@ -235,12 +271,26 @@ fun SettingsScreen(
         )
 
         if (session != null) {
-            Section("Backup")
+            Section("Backup to your account")
             Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Back up automatically", fontWeight = FontWeight.Bold)
+                            Text(
+                                "Sends new and changed transactions a few seconds after you " +
+                                    "record them, and when the app opens.",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        Switch(autoBackup, vm::setAutoBackup)
+                    }
+
                     Text(
                         when (val outcome = lastSync) {
-                            null -> "Not backed up yet in this session."
+                            null ->
+                                if (lastSyncAt > 0) "Last backed up " + shortDate(lastSyncAt) + "."
+                                else "Not backed up yet."
                             is SyncOutcome.Done ->
                                 "Sent ${outcome.pushed}, received ${outcome.pulled}." +
                                     if (outcome.conflicts > 0) " ${outcome.conflicts} need a decision." else ""
@@ -250,9 +300,21 @@ fun SettingsScreen(
                         },
                         style = MaterialTheme.typography.bodySmall
                     )
-                    Button({ vm.sync() }, enabled = !syncing) {
-                        Text(if (syncing) "Backing up..." else "Back up now")
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button({ vm.sync() }, enabled = !syncing) {
+                            Text(if (syncing) "Working..." else "Back up now")
+                        }
+                        OutlinedButton({ restoreConfirm = true }, enabled = !syncing) {
+                            Icon(Icons.Default.CloudDownload, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp)); Text("Restore")
+                        }
                     }
+                    Text(
+                        "Restore reads your whole history back down from the server. Use it after " +
+                            "reinstalling, or on a new phone.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
 
@@ -269,6 +331,39 @@ fun SettingsScreen(
                             "Nothing changes until you choose. Tap to review.",
                             style = MaterialTheme.typography.bodySmall
                         )
+                    }
+                }
+            }
+        }
+
+        Section("Backup to a file")
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Writes every transaction, person and category to a file you choose. It needs " +
+                        "no account and no connection, and it can be imported back here or onto " +
+                        "another phone. Receipts and attachments are not included.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                fileNotice?.let {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            it,
+                            Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                        TextButton(vm::clearFileOutcome) { Text("OK") }
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton({ backupFilePicker.launch(LocalBackup.suggestedFileName()) }) {
+                        Icon(Icons.Default.Save, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp)); Text("Back up locally")
+                    }
+                    OutlinedButton({ importFilePicker.launch(arrayOf(LocalBackup.MIME, "*/*")) }) {
+                        Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp)); Text("Import file")
                     }
                 }
             }
@@ -351,6 +446,24 @@ fun SettingsScreen(
         AppCurrency.set(context, picked)
         choosingCurrency = false
     }
+    if (restoreConfirm) {
+        AlertDialog(
+            onDismissRequest = { restoreConfirm = false },
+            title = { Text("Restore from your account?") },
+            text = {
+                Text(
+                    "Everything recorded under " + (session?.email ?: "this account") +
+                        " is read back down onto this phone. Anything here that is not on the " +
+                        "server is kept and sent up, so nothing you have typed is lost. " +
+                        "Receipts and attachments are not part of the backup."
+                )
+            },
+            confirmButton = {
+                Button({ vm.restore(); restoreConfirm = false }) { Text("Restore") }
+            },
+            dismissButton = { TextButton({ restoreConfirm = false }) { Text("Cancel") } }
+        )
+    }
     if (showingConflicts && conflicts.isNotEmpty()) {
         ConflictDialog(
             conflicts = conflicts,
@@ -408,9 +521,19 @@ private fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, on
 /**
  * The full ISO 4217 list is long enough that it has to be searchable and has to scroll inside a
  * bounded box, or the dialog grows past the window and takes its buttons with it.
+ *
+ * [subtitle] and [dismissLabel] are what turn this into the question the app asks once on first
+ * run. The list, the search and the check mark against the current pick are the same either way,
+ * so the first-run prompt is this dialog with a sentence above it rather than a second one to
+ * keep in step.
  */
 @Composable
-private fun CurrencyDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
+fun CurrencyDialog(
+    onDismiss: () -> Unit,
+    subtitle: String? = null,
+    dismissLabel: String = "Close",
+    onPick: (String) -> Unit
+) {
     val all = remember { AppCurrency.all() }
     var query by remember { mutableStateOf("") }
     val shown = remember(query, all) {
@@ -422,6 +545,7 @@ private fun CurrencyDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
         title = { Text("Currency") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                 OutlinedTextField(
                     query,
                     { query = it },
@@ -445,6 +569,6 @@ private fun CurrencyDialog(onDismiss: () -> Unit, onPick: (String) -> Unit) {
                 }
             }
         },
-        confirmButton = { TextButton(onDismiss) { Text("Close") } }
+        confirmButton = { TextButton(onDismiss) { Text(dismissLabel) } }
     )
 }

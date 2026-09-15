@@ -39,6 +39,15 @@ object AppCurrency {
         code = prefs(context).getString(KEY, null) ?: deviceDefault(context)
     }
 
+    /**
+     * False while the app is only guessing from the phone's region.
+     *
+     * The guess is right often enough to open the app with, and wrong often enough -- a phone
+     * bought abroad, a dual-SIM traveller, a tablet with no region at all -- that it is worth
+     * asking once. This is what tells the first run whether it still has to.
+     */
+    fun hasChosen(context: Context): Boolean = prefs(context).contains(KEY)
+
     fun set(context: Context, newCode: String) {
         if (of(newCode) == null) return
         code = newCode

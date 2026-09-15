@@ -24,7 +24,8 @@ class ExpenseRepository(context: Context) {
     val syncDao: SyncDao = db.syncDao()
 
     val conflicts: Flow<List<SyncConflict>> = syncDao.observeConflicts()
-    val pendingUpload: Flow<Int> = syncDao.observePendingExpenses()
+    /** Rows written here that the server has not taken yet, which is what auto backup watches. */
+    val pendingUpload: Flow<Int> = syncDao.observePendingCount()
 
     val expenses: Flow<List<ExpenseDetails>> = expenseDao.observeAll()
     val categories: Flow<List<Category>> = categoryDao.observeAll()

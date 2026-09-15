@@ -37,6 +37,22 @@ interface SyncDao {
     @Query("SELECT COUNT(*) FROM expenses WHERE syncedAt IS NULL")
     fun observePendingExpenses(): Flow<Int>
 
+    /**
+     * How much is waiting to go up, across every table that goes up.
+     *
+     * This is what automatic backup watches. Counting only the expenses would leave a renamed
+     * person or a new category sitting unsent until something else happened to trigger a run.
+     */
+    @Query(
+        """
+        SELECT (SELECT COUNT(*) FROM expenses       WHERE syncedAt IS NULL)
+             + (SELECT COUNT(*) FROM people         WHERE syncedAt IS NULL)
+             + (SELECT COUNT(*) FROM categories     WHERE syncedAt IS NULL)
+             + (SELECT COUNT(*) FROM expense_splits WHERE syncedAt IS NULL)
+        """
+    )
+    fun observePendingCount(): Flow<Int>
+
     // Finding the local row a pulled one refers to.
 
     @Query("SELECT * FROM expenses WHERE remoteId = :remoteId LIMIT 1")
@@ -51,6 +67,22 @@ interface SyncDao {
     @Query("SELECT * FROM expense_splits WHERE remoteId = :remoteId LIMIT 1")
     suspend fun splitByRemoteId(remoteId: String): ExpenseSplit?
 
+    /**
+     * The other way a pulled row can already be here: under the same name but a different id.
+     *
+     * A fresh install seeds its own categories, and a phone that has never synced mints its own
+     * ids for the people on it, so the server's "Food" and this device's "Food" are the same
+     * category with two different UUIDs. Inserting the pulled one would break the unique index on
+     * the name -- which is the crash a first restore after a reinstall used to end in -- so the
+     * local row adopts the server's identity instead. Tombstoned rows are included deliberately:
+     * a deleted name still occupies the index.
+     */
+    @Query("SELECT * FROM categories WHERE name = :name LIMIT 1")
+    suspend fun categoryByName(name: String): Category?
+
+    @Query("SELECT * FROM people WHERE name = :name LIMIT 1")
+    suspend fun personByName(name: String): Person?
+
     // Translating between the two numbering schemes, for splits.
 
     @Query("SELECT id, remoteId FROM expenses")
@@ -58,6 +90,14 @@ interface SyncDao {
 
     @Query("SELECT id, remoteId FROM people")
     suspend fun personIds(): List<IdPair>
+
+    // Reading the whole of a table, for a local backup file. Tombstones are included: a backup
+    // that dropped them would resurrect everything the user has deleted when it was imported.
+
+    @Query("SELECT * FROM expenses") suspend fun allExpenses(): List<Expense>
+    @Query("SELECT * FROM people") suspend fun allPeople(): List<Person>
+    @Query("SELECT * FROM categories") suspend fun allCategories(): List<Category>
+    @Query("SELECT * FROM expense_splits") suspend fun allSplits(): List<ExpenseSplit>
 
     // Writing a pulled row. REPLACE would renumber the row and break its splits, so an insert and
     // an update are kept apart and the caller decides which it is doing.

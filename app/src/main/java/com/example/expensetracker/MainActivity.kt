@@ -9,14 +9,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.IntentCompat
 import com.example.expensetracker.sync.Account
+import com.example.expensetracker.ui.AuthMode
 import com.example.expensetracker.ui.AuthScreen
+import com.example.expensetracker.ui.CurrencyDialog
 import com.example.expensetracker.ui.SpendwiseApp
+import com.example.expensetracker.ui.WelcomeScreen
 
 /** What the app was asked to do on launch, whether by a share or a launcher shortcut. */
 sealed interface LaunchAction {
@@ -28,6 +30,15 @@ sealed interface LaunchAction {
     data object ImportPdf : LaunchAction
     data object OpenBalances : LaunchAction
 }
+
+/**
+ * Where a launch has got to, before the app itself is on screen.
+ *
+ * Only ever moves forward, and only on something the user did: choosing a route from the welcome
+ * screen, or finishing with the one they chose. A phone that is already signed in starts at
+ * [Opening] and never sees any of it.
+ */
+private enum class Launch { Welcome, SigningIn, Registering, Opening }
 
 class MainActivity : ComponentActivity() {
 
@@ -48,21 +59,53 @@ class MainActivity : ComponentActivity() {
         val account = Account(this)
         setContent {
             MaterialTheme {
-                // Signing in is offered on a cold start and can be dismissed for the session. The
-                // app is usable offline by design, so the account gates the backup, not the app;
-                // a shared receipt waiting in [action] is applied once this clears either way,
-                // because SpendwiseApp reads it when it first composes.
-                var signedIn by remember { mutableStateOf(account.stored() != null) }
-                var dismissed by rememberSaveable { mutableStateOf(false) }
+                // An account is offered on a cold start and can be declined. The app is usable
+                // offline by design, so the account gates the backup, not the app; a shared
+                // receipt waiting in [action] is applied once this clears either way, because
+                // SpendwiseApp reads it when it first composes.
+                var launch by rememberSaveable {
+                    mutableStateOf(if (account.stored() != null) Launch.Opening else Launch.Welcome)
+                }
+                // Asked once, and only once the user has settled the account question, so the two
+                // decisions are not stacked on top of each other on a first launch. The stored
+                // answer is what makes it once: until then the app is running on a guess taken
+                // from the phone's region, which is right often enough to open with and wrong
+                // often enough -- a phone bought abroad, a tablet with no region at all -- to be
+                // worth confirming.
+                var askCurrency by rememberSaveable { mutableStateOf(!AppCurrency.hasChosen(this)) }
 
-                if (signedIn || dismissed) {
-                    SpendwiseApp(action, actionToken)
-                } else {
-                    AuthScreen(
-                        account = account,
-                        onSignedIn = { signedIn = true },
-                        onSkip = { dismissed = true }
+                when (launch) {
+                    Launch.Welcome -> WelcomeScreen(
+                        onSignIn = { launch = Launch.SigningIn },
+                        onCreateAccount = { launch = Launch.Registering },
+                        onSkip = { launch = Launch.Opening }
                     )
+
+                    Launch.SigningIn, Launch.Registering -> AuthScreen(
+                        account = account,
+                        initialMode = if (launch == Launch.SigningIn) AuthMode.SIGN_IN else AuthMode.SIGN_UP,
+                        onSignedIn = { launch = Launch.Opening },
+                        onSkip = { launch = Launch.Opening },
+                        onBack = { launch = Launch.Welcome }
+                    )
+
+                    Launch.Opening -> {
+                        SpendwiseApp(action, actionToken)
+                        if (askCurrency) {
+                            CurrencyDialog(
+                                // Dismissing is a real answer -- it keeps the currency the app
+                                // guessed -- so it counts as having chosen and is not asked again.
+                                onDismiss = { AppCurrency.set(this, AppCurrency.code); askCurrency = false },
+                                subtitle = "Amounts are shown in this currency everywhere. " +
+                                    "You can change it later in Settings.",
+                                dismissLabel = "Keep " + AppCurrency.code,
+                                onPick = { picked ->
+                                    AppCurrency.set(this, picked)
+                                    askCurrency = false
+                                }
+                            )
+                        }
+                    }
                 }
             }
         }
