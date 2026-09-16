@@ -70,7 +70,7 @@ fun WelcomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Spacer(Modifier.height(48.dp))
-        Text("Spendwise", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+        Text("Minto", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Text(
             "Track what you spend, split what you share, and settle up.",
             style = MaterialTheme.typography.bodyLarge
@@ -176,7 +176,7 @@ fun AuthScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Spacer(Modifier.height(36.dp))
-        Text("Spendwise", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+        Text("Minto", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
 
         val sentTo = confirmationSentTo
         if (sentTo != null) {

@@ -28,6 +28,8 @@ import java.nio.charset.StandardCharsets
  */
 object LocalBackup {
 
+    // Written into the file itself and checked on import, so it keeps the name it was first
+    // published under -- renaming it would make every backup taken so far unreadable.
     const val FORMAT = "spendwise-backup"
     const val VERSION = 1
     const val MIME = "application/json"
@@ -51,7 +53,7 @@ object LocalBackup {
     fun suggestedFileName(now: Long = System.currentTimeMillis()): String {
         val stamp = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
             .format(java.util.Date(now))
-        return "spendwise-backup-$stamp.json"
+        return "minto-backup-$stamp.json"
     }
 
     // --- writing ---
@@ -103,12 +105,12 @@ object LocalBackup {
     suspend fun merge(dao: SyncDao, input: InputStream): Imported {
         val text = input.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
         val root = runCatching { JSONObject(text) }.getOrNull()
-            ?: throw NotABackup("That file is not readable as a Spendwise backup.")
+            ?: throw NotABackup("That file is not readable as a Minto backup.")
         if (root.optString("format") != FORMAT) {
-            throw NotABackup("That file was not written by Spendwise.")
+            throw NotABackup("That file was not written by Minto.")
         }
         if (root.optInt("version", 0) > VERSION) {
-            throw NotABackup("That backup was written by a newer version of Spendwise.")
+            throw NotABackup("That backup was written by a newer version of Minto.")
         }
 
         var imported = Imported()

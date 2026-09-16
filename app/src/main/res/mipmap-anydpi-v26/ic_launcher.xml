@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The artwork is full-bleed, so it all lives in the background layer and the foreground is empty.
+  The tile is inset inside the 108dp canvas, which leaves the mark and the wordmark inside the
+  72dp the launcher is guaranteed to show whatever mask shape it applies.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@android:color/transparent" />
+</adaptive-icon>

@@ -1,11 +1,11 @@
-# Spendwise Android MVP
+# Minto Android MVP
 
 An offline-first Android expense tracker that supports manual entry and receipt screenshots shared from Google Pay (or any app).
 
 ## Included
 
 - Manual entry and editing, with category, merchant, and a personal note
-- Android image-share target (`Share` → `Spendwise`)
+- Android image-share target (`Share` → `Minto`)
 - On-device ML Kit OCR to suggest amount, payee, note, and category
 - Mandatory editable review before saving
 - Duplicate detection: a warning, never a block, so a genuine repeat payment is still recordable
@@ -29,7 +29,7 @@ An offline-first Android expense tracker that supports manual entry and receipt 
 The app opens on three choices — create an account, sign in, or continue without one — and then
 asks once which currency to show amounts in. All three routes lead to the same app: every write
 lands in the local database first, so an account is a backup rather than a licence to use
-Spendwise, and losing your connection costs you the backup and never the data.
+Minto, and losing your connection costs you the backup and never the data.
 
 **Automatic backup is on by default.** Anything recorded or edited is sent a few seconds later,
 and once more when the app opens. The switch is in Settings for anybody who would rather send
@@ -79,7 +79,7 @@ Open the folder in Android Studio (Ladybug or newer) and run on an Android 8.0+ 
 
 Note that `connectedDebugAndroidTest` uninstalls the app afterwards, taking its database with it.
 
-To try the share flow: make a Google Pay payment, capture its receipt screen, then use Android Share and select **Spendwise**.
+To try the share flow: make a Google Pay payment, capture its receipt screen, then use Android Share and select **Minto**.
 
 ## How the receipt parser works
 

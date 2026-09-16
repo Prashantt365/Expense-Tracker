@@ -49,7 +49,7 @@ private enum class Screen(val label: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SpendwiseApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewModel()) {
+fun MintoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewModel()) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
@@ -150,7 +150,7 @@ fun SpendwiseApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = 
     }
 
     Scaffold(
-        topBar = { CenterAlignedTopAppBar(title = { Text("Spendwise", fontWeight = FontWeight.Bold) }) },
+        topBar = { CenterAlignedTopAppBar(title = { Text("Minto", fontWeight = FontWeight.Bold) }) },
         bottomBar = {
             NavigationBar {
                 Screen.entries.forEach { destination ->
