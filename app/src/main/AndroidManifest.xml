@@ -32,7 +32,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Makes Minto appear when a Google Pay receipt screenshot is shared. -->
+            <!-- Makes Peyo appear when a Google Pay receipt screenshot is shared. -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Minto is offline-first and its database holds financial history, so nothing is copied off
+  Peyo is offline-first and its database holds financial history, so nothing is copied off
   the device by Android's automatic backup.
 -->
 <full-backup-content>

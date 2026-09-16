@@ -17,7 +17,7 @@ import com.example.expensetracker.sync.Account
 import com.example.expensetracker.ui.AuthMode
 import com.example.expensetracker.ui.AuthScreen
 import com.example.expensetracker.ui.CurrencyDialog
-import com.example.expensetracker.ui.MintoApp
+import com.example.expensetracker.ui.PeyoApp
 import com.example.expensetracker.ui.WelcomeScreen
 
 /** What the app was asked to do on launch, whether by a share or a launcher shortcut. */
@@ -62,7 +62,7 @@ class MainActivity : ComponentActivity() {
                 // An account is offered on a cold start and can be declined. The app is usable
                 // offline by design, so the account gates the backup, not the app; a shared
                 // receipt waiting in [action] is applied once this clears either way, because
-                // MintoApp reads it when it first composes.
+                // PeyoApp reads it when it first composes.
                 var launch by rememberSaveable {
                     mutableStateOf(if (account.stored() != null) Launch.Opening else Launch.Welcome)
                 }
@@ -90,7 +90,7 @@ class MainActivity : ComponentActivity() {
                     )
 
                     Launch.Opening -> {
-                        MintoApp(action, actionToken)
+                        PeyoApp(action, actionToken)
                         if (askCurrency) {
                             CurrencyDialog(
                                 // Dismissing is a real answer -- it keeps the currency the app

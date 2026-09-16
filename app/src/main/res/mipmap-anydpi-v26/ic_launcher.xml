@@ -1,10 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   The artwork is full-bleed, so it all lives in the background layer and the foreground is empty.
-  The tile is inset inside the 108dp canvas, which leaves the mark and the wordmark inside the
-  72dp the launcher is guaranteed to show whatever mask shape it applies.
+  The leaf sits high and the wordmark low, so the art is shifted down inside the 108dp canvas to
+  put the mark on centre, which is what keeps it inside the 72dp a launcher is guaranteed to
+  show whatever mask shape it applies.
+
+  The themed layer is the sprout alone. Flattened to one colour the wordmark would be a smear at
+  launcher size, and the sprout is the half of the mark that still reads.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@mipmap/ic_launcher_background" />
     <foreground android:drawable="@android:color/transparent" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
 </adaptive-icon>
