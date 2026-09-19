@@ -281,6 +281,24 @@ class OcrReceiptParserTest {
         assertEquals("182", draft.amount)
     }
 
+    /**
+     * The reported bug: a bank account tail (4 digits) follows a bank name.
+     * Even if the headline is missed, this should not be taken as the amount.
+     */
+    @Test fun `does not mistake a bank account tail following From or bank name`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            To Swiggy
+            Completed
+            From: Mr PRASHANT GIRISH GARJE
+            Central Bank of India
+            7493
+            Payment of ₹182 completed
+            """.trimIndent()
+        )
+        assertEquals("182", draft.amount)
+    }
+
     @Test fun `reads the amount from the confirmation sentence when the headline is lost`() {
         val draft = OcrReceiptParser.parse(
             """
@@ -305,5 +323,16 @@ class OcrReceiptParserTest {
         )
         assertEquals("", draft.amount)
         assertEquals("Kirana Store", draft.merchant)
+    }
+
+    @Test fun `does not strip a digit from a clean three digit amount`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            182
+            To Swiggy
+            Completed
+            """.trimIndent()
+        )
+        assertEquals("182", draft.amount)
     }
 }

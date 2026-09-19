@@ -30,18 +30,19 @@ object OcrReceiptParser {
      * A number wearing a single leading character, which on a Google Pay receipt is the rupee
      * glyph ML Kit failed to read. The oversized headline defeats the Latin model in both
      * directions -- it comes back as a stray symbol ("*450") but just as often as a stray letter
-     * ("z182", "R182") or digits ("7182", "2182", "1182") where the glyph was misread as 7, 2, 1, etc.
-     * So we look for numbers of length >=2 prefixed by a character/digit where the prefix can be anything.
+     * ("z182", "R182").
+     *
+     * We explicitly exclude digits here to avoid consuming the first digit of a clean amount.
      */
-    private val glyphedAmount = Regex("^.\\s?([0-9]{2,}[0-9,]*(?:\\.[0-9]{1,2})?)$")
+    private val glyphedAmount = Regex("^([^0-9\\s])\\s?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)$")
 
     /**
      * The amount restated in the confirmation sentence of the expanded details card,
-     * "Payment of \u20B9182 completed". It is a second reading of the same figure, set small
+     * "Payment of ₹182 completed". It is a second reading of the same figure, set small
      * enough that OCR tends to get it right on the receipts where the headline glyph defeats it.
      */
     private val paymentPhrase = Regex(
-        "\\b(?:payment|transfer)\\s+of\\s+[^0-9\\s]{0,2}([0-9][0-9,]*(?:\\.[0-9]{1,2})?)\\b",
+        "\\b(?:payment|transfer|sent)\\s+of\\s+[^0-9\\s]{0,3}([0-9][0-9,]*(?:\\.[0-9]{1,2})?)(?!\\d)",
         RegexOption.IGNORE_CASE
     )
 
@@ -94,7 +95,7 @@ object OcrReceiptParser {
         "^(?:new payment|scan any qr|self transfer|check balance)\\b"
     ).map { Regex(it, RegexOption.IGNORE_CASE) }
 
-    private class Candidate(val index: Int, val value: String) {
+    private data class Candidate(val value: String, val score: Int, val index: Int) {
         val numeric: Double = value.toDoubleOrNull() ?: 0.0
     }
 
@@ -109,36 +110,70 @@ object OcrReceiptParser {
     }
 
     private fun findAmount(lines: List<String>, claimed: MutableSet<Int>): String {
-        val tagged = mutableListOf<Candidate>()
-        val inferred = mutableListOf<Candidate>()
-        val bare = mutableListOf<Candidate>()
+        val candidates = mutableListOf<Candidate>()
+
         lines.forEachIndexed { index, line ->
-            val matches = currencyAmount.findAll(line).toList()
-            if (matches.isNotEmpty()) {
-                matches.forEach { tagged += Candidate(index, it.groupValues[1].replace(",", "")) }
-                return@forEachIndexed
+            // 1. Amounts with explicit symbols: "₹182", "Rs. 450"
+            currencyAmount.findAll(line).forEach { match ->
+                val clean = match.groupValues[1].replace(",", "")
+                if (!followsIdentifierLabel(lines, index, clean)) {
+                    candidates += Candidate(clean, 100, index)
+                }
             }
-            paymentPhrase.find(line)?.let {
-                inferred += Candidate(index, it.groupValues[1].replace(",", ""))
-                return@forEachIndexed
+
+            // 2. Amounts in confirmation phrases: "Payment of ₹182 completed"
+            paymentPhrase.findAll(line).forEach { match ->
+                val clean = match.groupValues[1].replace(",", "")
+                if (!followsIdentifierLabel(lines, index, clean)) {
+                    candidates += Candidate(clean, 90, index)
+                }
             }
-            val glyphed = glyphedAmount.find(line)?.groupValues?.get(1)
-            val raw = glyphed ?: bareAmount.find(line)?.groupValues?.get(1) ?: return@forEachIndexed
-            if (looksLikeIdentifier(raw) || followsIdentifierLabel(lines, index)) return@forEachIndexed
-            val candidate = Candidate(index, raw.replace(",", ""))
-            val tier = if (glyphed != null) inferred else bare
-            tier += candidate
+
+            // 3. Glyphed or Bare numbers: "z182", "7182", "182", "7493"
+            val glyphMatch = glyphedAmount.find(line)
+            val bareMatch = bareAmount.find(line)
+
+            val raw = glyphMatch?.groupValues?.get(2) ?: bareMatch?.groupValues?.get(1)
+            if (raw != null && !followsIdentifierLabel(lines, index, raw) && !looksLikeIdentifier(raw)) {
+                val clean = raw.replace(",", "")
+                val isHeadline = index < 5
+                if (glyphMatch != null) {
+                    candidates += Candidate(clean, 80, index)
+                } else {
+                    // Bare number.
+                    candidates += Candidate(clean, if (isHeadline) 60 else 50, index)
+                    // If it starts with 7 or 2 and it's 4+ digits, it might be a mangled Rupee glyph.
+                    if ((raw.startsWith('7') || raw.startsWith('2')) && clean.length >= 4) {
+                        val stripped = clean.substring(1)
+                        if (stripped.length >= 2) {
+                            // High confidence if it's a '7' (closest to Rupee glyph) or if verified by phrase later.
+                            val mangledScore = if (isHeadline && raw.startsWith('7')) 70 else 10
+                            candidates += Candidate(stripped, mangledScore, index)
+                        }
+                    }
+                }
+            }
         }
-        // A currency-tagged figure is trustworthy, and on an itemised bill the largest one is the
-        // total. Failing that, a figure still carrying some evidence of being an amount -- a
-        // mangled currency glyph, or the confirmation sentence -- beats a number standing on its
-        // own, which is as likely to be an account tail as a price. Within either weaker tier the
-        // first one wins: that is the headline Google Pay prints above everything else. Taking the
-        // largest instead would let a four-digit account tail outrank a two-digit payment.
-        val chosen = tagged.maxByOrNull { it.numeric }
-            ?: inferred.firstOrNull()
-            ?: bare.firstOrNull()
-            ?: return ""
+
+        // 4. Boost candidates that appear multiple times or in high-confidence contexts.
+        val highConfidence = candidates.filter { it.score >= 90 }.map { it.value }.toSet()
+        val finalCandidates = candidates.map { c ->
+            if (c.value in highConfidence) c.copy(score = c.score + 100) else c
+        }
+
+        // We want the highest score. For tied scores, the first occurrence (headline) wins.
+        val chosen = finalCandidates
+            .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.index })
+            .let { list ->
+                val maxScore = list.firstOrNull()?.score ?: return ""
+                if (maxScore >= 100) {
+                    // On an itemised bill the largest high-confidence amount is usually the total.
+                    list.filter { it.score >= 100 }.maxByOrNull { it.numeric }
+                } else {
+                    list.firstOrNull()
+                }
+            } ?: return ""
+
         claimed += chosen.index
         return chosen.value
     }
@@ -151,13 +186,23 @@ object OcrReceiptParser {
      * Google Pay's expanded details card heads its funding-source row with the bank name and puts
      * the account tail bare on the line below -- "Central Bank of India" over "7493", with none of
      * the masking dots that would otherwise give it away. Digits under a bank are never a price.
+     *
+     * We check a few lines back because the bank name might be split or preceded by "From".
      */
-    private fun followsIdentifierLabel(lines: List<String>, index: Int): Boolean {
-        val previous = lines.getOrNull(index - 1)?.lowercase(Locale.ROOT) ?: return false
-        return listOf(
-            "transaction id", "reference", "ref no", "utr", "order",
-            "account", "a/c", "bank", "card", "wallet"
-        ).any(previous::contains)
+    private fun followsIdentifierLabel(lines: List<String>, index: Int, rawDigits: String): Boolean {
+        val isLikelyBankTail = rawDigits.length == 4 && rawDigits.all { it.isDigit() }
+
+        for (offset in 1..3) {
+            val prev = lines.getOrNull(index - offset)?.lowercase(Locale.ROOT) ?: break
+            // Standalone labels for identifiers.
+            if (listOf(
+                    "transaction id", "reference", "ref no", "utr", "order",
+                    "account", "a/c", "bank", "card", "wallet", "from", "to"
+                ).any { prev == it || prev == "$it:" || prev.contains("$it ID", true) }) return true
+            // Bank names or cards preceding a 4-digit account tail.
+            if (isLikelyBankTail && (prev.contains("bank") || prev.contains("a/c") || prev.contains("card"))) return true
+        }
+        return false
     }
 
     private fun findMerchant(lines: List<String>, claimed: MutableSet<Int>): String {
