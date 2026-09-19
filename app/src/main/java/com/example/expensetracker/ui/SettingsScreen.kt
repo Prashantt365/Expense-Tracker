@@ -85,6 +85,14 @@ import com.example.expensetracker.ui.theme.ThemeSettings
 import com.example.expensetracker.widget.PeyoWidgets
 import kotlinx.coroutines.launch
 
+/** A delete the app would not do, why, and the thing to do instead. */
+private data class Refusal(
+    val title: String,
+    val body: String,
+    val actionLabel: String,
+    val action: () -> Unit
+)
+
 @Composable
 fun SettingsScreen(
     vm: ExpenseViewModel,
@@ -93,9 +101,14 @@ fun SettingsScreen(
     onImportContacts: () -> Unit,
     onImportPdf: () -> Unit,
     onNotice: (String) -> Unit,
+    onSettleUp: (Person) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var message by remember { mutableStateOf<String?>(null) }
+    // Why a delete was refused, if one was. A banner at the top of the screen was the wrong place
+    // for it: categories and people live near the foot of a long scroll, so the explanation
+    // appeared somewhere the user could not see and the delete looked like it had simply done
+    // nothing. This is a dialog, in front of whatever they were looking at.
+    var refused by remember { mutableStateOf<Refusal?>(null) }
     var editingCategory by remember { mutableStateOf<Category?>(null) }
     var editingPerson by remember { mutableStateOf<Person?>(null) }
     var addingCategory by remember { mutableStateOf(false) }
@@ -148,14 +161,6 @@ fun SettingsScreen(
             .padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        message?.let {
-            AlertCard(
-                it,
-                icon = Icons.Default.Warning,
-                trailing = { TextButton({ message = null }) { Text("OK") } }
-            )
-        }
-
         Section("Account")
         AccountCard(
             email = session?.email,
@@ -300,9 +305,16 @@ fun SettingsScreen(
             onDelete = { name ->
                 categories.firstOrNull { it.name == name }?.let { category ->
                     vm.deleteCategory(category) { used ->
-                        message = "${category.name} is used by $used " +
-                            "expense${if (used == 1) "" else "s"}. Rename it, or move those " +
-                            "expenses first."
+                        refused = Refusal(
+                            title = "${category.name} is still in use",
+                            body = "$used expense${if (used == 1) "" else "s"} " +
+                                "${if (used == 1) "is" else "are"} filed under it. Deleting it " +
+                                "would leave ${if (used == 1) "that one" else "them"} pointing at " +
+                                "a category the picker no longer offers.\n\nRenaming it instead " +
+                                "carries those expenses across with it.",
+                            actionLabel = "Rename instead",
+                            action = { editingCategory = category }
+                        )
                     }
                 }
             },
@@ -326,8 +338,15 @@ fun SettingsScreen(
             onDelete = { name ->
                 people.firstOrNull { it.name == name }?.let { person ->
                     vm.deletePerson(person) { owing ->
-                        message = "${person.name} still has $owing unsettled " +
-                            "share${if (owing == 1) "" else "s"}. Settle up before removing them."
+                        refused = Refusal(
+                            title = "${person.name} still owes you",
+                            body = "$owing unsettled " +
+                                "share${if (owing == 1) "" else "s"} " +
+                                "${if (owing == 1) "is" else "are"} outstanding. Removing them now " +
+                                "would take that off your balances as though it had been paid.",
+                            actionLabel = "Settle up",
+                            action = { onSettleUp(person) }
+                        )
                     }
                 }
             },
@@ -354,6 +373,19 @@ fun SettingsScreen(
         }
 
         Spacer(Modifier.height(32.dp))
+    }
+
+    refused?.let { reason ->
+        AlertDialog(
+            onDismissRequest = { refused = null },
+            icon = { Icon(Icons.Default.Warning, null) },
+            title = { Text(reason.title) },
+            text = { Text(reason.body) },
+            confirmButton = {
+                Button({ reason.action(); refused = null }) { Text(reason.actionLabel) }
+            },
+            dismissButton = { TextButton({ refused = null }) { Text("Cancel") } }
+        )
     }
 
     if (choosingCurrency) CurrencyDialog({ choosingCurrency = false }) { picked ->

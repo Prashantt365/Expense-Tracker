@@ -290,6 +290,10 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                     onImportContacts = ::importContacts,
                     onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
                     onNotice = { notify(it) },
+                    onSettleUp = { person ->
+                        settling = balances.firstOrNull { it.personId == person.id }
+                            ?: PersonBalance(person.id, person.name, 0)
+                    },
                     modifier = content
                 )
             }

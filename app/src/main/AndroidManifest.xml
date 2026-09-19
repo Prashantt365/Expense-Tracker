@@ -69,6 +69,19 @@
           them; that is what a widget is. Neither accepts anything from the broadcast other than
           the framework's own update and delete actions, and neither reads an extra.
         -->
+        <!--
+          Redraws the widgets after an app update, which otherwise leaves them on the placeholder
+          layout until the app is next opened. Not exported: the only sender is the system, and
+          only about this app.
+        -->
+        <receiver
+            android:name=".widget.WidgetRefreshReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
         <receiver
             android:name=".widget.SummaryWidgetReceiver"
             android:label="@string/widget_summary_title"

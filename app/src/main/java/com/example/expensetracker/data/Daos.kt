@@ -110,6 +110,43 @@ interface ExpenseDao {
     )
     fun observeBalances(): Flow<List<PersonBalance>>
 
+    /**
+     * The one-shot reads the home screen widgets use, in place of collecting the observable
+     * queries above.
+     *
+     * A widget is composed once, off the main thread, and handed to the launcher as a finished
+     * set of RemoteViews; there is nothing there to observe with. Taking the first emission of a
+     * Flow instead was the wrong shape twice over: it leaves the widget waiting on Room's
+     * invalidation tracker for a value it only needs once, and if that first emission never
+     * arrives the widget never composes at all and sits on its placeholder layout for good.
+     *
+     * They are also narrower than the screens' queries. The widget shows this month and the last
+     * few rows, so that is what it asks for, rather than loading every expense ever recorded with
+     * all of its splits and attachments to add up one month of them.
+     */
+    @Transaction
+    @Query("SELECT * FROM expenses WHERE deletedAt IS NULL AND paidAt >= :from ORDER BY paidAt DESC")
+    suspend fun detailsSince(from: Long): List<ExpenseDetails>
+
+    @Transaction
+    @Query("SELECT * FROM expenses WHERE deletedAt IS NULL ORDER BY paidAt DESC LIMIT :limit")
+    suspend fun recentDetails(limit: Int): List<ExpenseDetails>
+
+    @Query(
+        """
+        SELECT p.id AS personId, p.name AS name,
+               COALESCE(SUM(CASE WHEN s.settledAt IS NULL THEN s.amountPaise ELSE 0 END), 0) AS owedPaise
+        FROM people p
+        LEFT JOIN expense_splits s
+               ON s.personId = p.id
+              AND EXISTS (SELECT 1 FROM expenses e WHERE e.id = s.expenseId AND e.deletedAt IS NULL)
+        WHERE p.deletedAt IS NULL
+        GROUP BY p.id, p.name
+        ORDER BY owedPaise DESC, p.name
+        """
+    )
+    suspend fun balancesNow(): List<PersonBalance>
+
     @Query(
         """
         SELECT s.id AS splitId, s.expenseId AS expenseId, s.amountPaise AS amountPaise,

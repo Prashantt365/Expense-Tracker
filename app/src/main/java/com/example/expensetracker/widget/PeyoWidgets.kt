@@ -6,6 +6,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.glance.appwidget.updateAll
 
 /**
@@ -25,11 +26,16 @@ object PeyoWidgets {
      */
     suspend fun refresh(context: Context) {
         val application = context.applicationContext
+        // Logged rather than swallowed. A widget that fails to redraw shows its last good frame,
+        // or its placeholder, and says nothing either way -- so the only place the failure can
+        // surface is here.
         runCatching {
             SummaryWidget().updateAll(application)
             QuickAddWidget().updateAll(application)
-        }
+        }.onFailure { Log.w(TAG, "Could not redraw the widgets", it) }
     }
+
+    private const val TAG = "PeyoWidgets"
 
     /** Which widgets this app offers, as the settings screen lists them. */
     enum class Kind(

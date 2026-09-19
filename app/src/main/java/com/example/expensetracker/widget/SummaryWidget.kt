@@ -35,6 +35,7 @@ import androidx.glance.layout.width
 import androidx.glance.text.FontWeight
 import androidx.glance.text.Text
 import androidx.glance.text.TextStyle
+import android.util.Log
 import com.example.expensetracker.R
 import com.example.expensetracker.ui.dayHeading
 import com.example.expensetracker.ui.money
@@ -63,6 +64,7 @@ class SummaryWidget : GlanceAppWidget() {
             loadWidgetTheme(context)
             WidgetData.load(context)
         } catch (e: Exception) {
+            Log.w(TAG, "Could not read the figures; drawing an empty widget", e)
             WidgetSnapshot.Empty
         }
         val dark = try { widgetIsDark(context) } catch (e: Exception) { false }
@@ -72,6 +74,8 @@ class SummaryWidget : GlanceAppWidget() {
     }
 
     companion object {
+        private const val TAG = "SummaryWidget"
+
         /** Just the headline figure: a 2x1 strip. */
         val TINY = DpSize(120.dp, 50.dp)
 

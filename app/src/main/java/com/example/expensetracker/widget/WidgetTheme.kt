@@ -47,14 +47,18 @@ fun loadWidgetTheme(context: Context) = ThemeSettings.load(context)
 
 @Composable
 fun PeyoGlanceTheme(darkTheme: Boolean, content: @Composable () -> Unit) {
-    GlanceTheme(
-        colors = when {
-            ThemeSettings.dynamicColor && ThemeSettings.supportsDynamic -> GlanceTheme.colors
-            darkTheme -> PeyoDarkProviders
-            else -> PeyoLightProviders
-        },
-        content = content
-    )
+    // When dynamic color is active we let GlanceTheme pick up the system wallpaper palette on
+    // its own — that is exactly what dynamic color means — so we pass no explicit providers.
+    // Passing GlanceTheme.colors as the `colors` argument would read the current Glance color
+    // scheme *before* a GlanceTheme scope exists and crash the widget composition.
+    if (ThemeSettings.dynamicColor && ThemeSettings.supportsDynamic) {
+        GlanceTheme(content = content)
+    } else {
+        GlanceTheme(
+            colors = if (darkTheme) PeyoDarkProviders else PeyoLightProviders,
+            content = content
+        )
+    }
 }
 
 /**
