@@ -2,18 +2,13 @@ package com.example.expensetracker.data
 
 import android.content.Context
 import android.net.Uri
-import androidx.room.Room
 import kotlinx.coroutines.flow.Flow
 
 class ExpenseRepository(context: Context) {
 
-    private val db = Room.databaseBuilder(context, AppDatabase::class.java, "spendwise.db")
-        .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
-        // Version 1 predates anything worth keeping and never had a migration written for it.
-        // Everything from 2 on carries real history and now migrates properly.
-        .fallbackToDestructiveMigrationFrom(1)
-        .addCallback(AppDatabase.seedCategories)
-        .build()
+    // Shared with the home screen widgets rather than opened again here, so that a save made in
+    // the app invalidates the widget's query rather than leaving it on a stale total.
+    private val db = AppDatabase.get(context)
 
     private val expenseDao = db.expenseDao()
     private val categoryDao = db.categoryDao()

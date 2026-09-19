@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The spending summary. minWidth/minHeight are the smallest the launcher may make it, and the
+  target cells are what it is placed at: 4x2 is the size the medium layout is designed for, so
+  that is what a first-time placement gets rather than the smallest thing that fits.
+
+  resizeMode is both axes because the Glance side declares four responsive layouts, and the whole
+  point of them is lost if the user cannot reach them.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="110dp"
+    android:minHeight="40dp"
+    android:minResizeWidth="110dp"
+    android:minResizeHeight="40dp"
+    android:targetCellWidth="4"
+    android:targetCellHeight="2"
+    android:maxResizeWidth="500dp"
+    android:maxResizeHeight="400dp"
+    android:updatePeriodMillis="1800000"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_summary_description"
+    android:previewImage="@mipmap/ic_launcher"
+    android:previewLayout="@layout/widget_summary_preview"
+    android:initialLayout="@layout/widget_loading" />

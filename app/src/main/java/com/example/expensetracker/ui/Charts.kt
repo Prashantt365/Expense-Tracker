@@ -1,104 +1,69 @@
 package com.example.expensetracker.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.expensetracker.ui.theme.ChartPalette
+import com.example.expensetracker.ui.theme.LocalChartPalette
 
 /**
- * A categorical palette that stays legible on both the light and dark Material surfaces, so a
- * chart does not have to be re-tuned per theme.
+ * The palette every chart draws with, taken from the theme so that a category keeps its hue when
+ * the phone switches between light and dark instead of being redrawn in a colour that vanishes
+ * into the surface behind it.
  */
-object ChartColors {
-    private val palette = listOf(
-        Color(0xFF6750A4), Color(0xFF2E7D6F), Color(0xFFB3541E), Color(0xFF3B6FB6),
-        Color(0xFF8E4585), Color(0xFF77702A), Color(0xFF9C4146), Color(0xFF4B6358)
-    )
+val chartPalette: ChartPalette
+    @Composable get() = LocalChartPalette.current
 
-    fun at(index: Int): Color = palette[index.mod(palette.size)]
-
-    /** Reserved roles, kept consistent everywhere: mine vs what is carried for other people. */
-    val mine = Color(0xFF6750A4)
-    val others = Color(0xFFB3541E)
-    val settled = Color(0xFF2E7D6F)
-}
-
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ChartLegend(entries: List<Pair<String, Color>>, modifier: Modifier = Modifier) {
-    Row(modifier, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    FlowRow(
+        modifier,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
         entries.forEach { (label, color) ->
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Box(Modifier.size(10.dp).clip(CircleShape).background(color))
-                Text(label, style = MaterialTheme.typography.labelSmall)
-            }
-        }
-    }
-}
-
-/**
- * Twelve months of spend, each bar stacked as my own share beneath what was assigned to others.
- * Bars are drawn against the largest month so the shape of the year is readable at a glance.
- */
-@Composable
-fun MonthlyBars(
-    points: List<StackedBar>,
-    modifier: Modifier = Modifier,
-    height: Int = 160
-) {
-    val max = points.maxOfOrNull { it.lower + it.upper }?.takeIf { it > 0 } ?: 1L
-    val outline = MaterialTheme.colorScheme.outlineVariant
-    Column(modifier) {
-        Canvas(Modifier.fillMaxWidth().height(height.dp)) {
-            val slot = size.width / points.size
-            val barWidth = (slot * 0.55f).coerceAtMost(28.dp.toPx())
-            // A single baseline: without it, short bars float with no reference.
-            drawLine(
-                outline,
-                Offset(0f, size.height),
-                Offset(size.width, size.height),
-                strokeWidth = 1.dp.toPx()
-            )
-            points.forEachIndexed { index, point ->
-                val centre = slot * index + slot / 2
-                val left = centre - barWidth / 2
-                val lowerHeight = size.height * (point.lower.toFloat() / max)
-                val upperHeight = size.height * (point.upper.toFloat() / max)
-
-                if (upperHeight > 0f) drawRect(
-                    color = ChartColors.others,
-                    topLeft = Offset(left, size.height - lowerHeight - upperHeight),
-                    size = Size(barWidth, upperHeight)
-                )
-                if (lowerHeight > 0f) drawRect(
-                    color = ChartColors.mine,
-                    topLeft = Offset(left, size.height - lowerHeight),
-                    size = Size(barWidth, lowerHeight)
-                )
-            }
-        }
-        Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
-            points.forEach { point ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Box(Modifier.size(9.dp).clip(CircleShape).background(color))
                 Text(
-                    point.label,
-                    Modifier.weight(1f),
+                    label,
                     style = MaterialTheme.typography.labelSmall,
-                    fontSize = 9.sp,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                    maxLines = 1
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -107,19 +72,99 @@ fun MonthlyBars(
 
 data class StackedBar(val label: String, val lower: Long, val upper: Long)
 
+/**
+ * Twelve months of spend, each bar stacked as my own share beneath what was assigned to others.
+ *
+ * Bars grow from the baseline on first composition and whenever the period changes, which is what
+ * makes a switch between This month and All time read as the same chart rescaling rather than as
+ * a new one appearing. The current month is marked, because a partial month sitting at the right
+ * hand end otherwise looks like a collapse in spending.
+ */
+@Composable
+fun MonthlyBars(
+    points: List<StackedBar>,
+    modifier: Modifier = Modifier,
+    height: Int = 168
+) {
+    val palette = chartPalette
+    val max = points.maxOfOrNull { it.lower + it.upper }?.takeIf { it > 0 } ?: 1L
+    val outline = MaterialTheme.colorScheme.outlineVariant
+    val highlight = MaterialTheme.colorScheme.onSurfaceVariant
+    val grow by animateFloatAsState(if (points.isEmpty()) 0f else 1f, tween(650), label = "bars")
+
+    Column(modifier) {
+        Canvas(Modifier.fillMaxWidth().height(height.dp)) {
+            if (points.isEmpty()) return@Canvas
+            val slot = size.width / points.size
+            val barWidth = (slot * 0.5f).coerceAtMost(26.dp.toPx())
+            val radius = CornerRadius(barWidth / 3)
+
+            // Three faint gridlines, so a bar can be read as a value rather than only against its
+            // neighbours. Drawn under the bars and in the outline tone, never in a content colour.
+            listOf(0.25f, 0.5f, 0.75f).forEach { at ->
+                val y = size.height * (1f - at)
+                drawLine(
+                    outline.copy(alpha = 0.4f),
+                    Offset(0f, y),
+                    Offset(size.width, y),
+                    strokeWidth = 1.dp.toPx()
+                )
+            }
+            drawLine(outline, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1.dp.toPx())
+
+            points.forEachIndexed { index, point ->
+                val centre = slot * index + slot / 2
+                val left = centre - barWidth / 2
+                val lowerHeight = size.height * (point.lower.toFloat() / max) * grow
+                val upperHeight = size.height * (point.upper.toFloat() / max) * grow
+
+                if (upperHeight > 0f) drawRoundRect(
+                    color = palette.others,
+                    topLeft = Offset(left, size.height - lowerHeight - upperHeight),
+                    size = Size(barWidth, upperHeight + lowerHeight.coerceAtMost(radius.y * 2)),
+                    cornerRadius = radius
+                )
+                if (lowerHeight > 0f) drawRoundRect(
+                    color = palette.mine,
+                    topLeft = Offset(left, size.height - lowerHeight),
+                    size = Size(barWidth, lowerHeight),
+                    cornerRadius = radius
+                )
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+            points.forEachIndexed { index, point ->
+                val isCurrent = index == points.lastIndex
+                Text(
+                    point.label,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 9.sp,
+                    fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isCurrent) highlight else MaterialTheme.colorScheme.outline,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
 /** Category mix as a ring, with the period total in the middle. */
 @Composable
 fun DonutChart(
-    slices: List<Float>,
+    slices: List<Pair<Float, Color>>,
     centreLabel: String,
     centreCaption: String,
     modifier: Modifier = Modifier,
-    diameter: Int = 168
+    diameter: Int = 176
 ) {
-    val track = MaterialTheme.colorScheme.surfaceVariant
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    val sweepFraction by animateFloatAsState(1f, tween(700), label = "donut")
+
     Box(modifier.size(diameter.dp), contentAlignment = Alignment.Center) {
         Canvas(Modifier.fillMaxSize()) {
-            val thickness = 26.dp.toPx()
+            val thickness = 24.dp.toPx()
             val inset = thickness / 2
             val arcSize = Size(size.width - thickness, size.height - thickness)
             drawArc(
@@ -132,13 +177,16 @@ fun DonutChart(
                 style = Stroke(width = thickness)
             )
             var start = -90f
-            slices.forEachIndexed { index, fraction ->
-                val sweep = fraction * 360f
-                // A hairline gap keeps adjacent slices distinguishable without a border colour.
+            slices.forEach { (fraction, colour) ->
+                val sweep = fraction * 360f * sweepFraction
+                // A hairline gap keeps adjacent slices distinguishable without a border colour,
+                // and the cap is butt rather than round: a rounded cap on a one per cent slice
+                // draws a dot wider than the slice itself, which reads as a stray mark sitting on
+                // top of the ring rather than as part of it.
                 drawArc(
-                    color = ChartColors.at(index),
-                    startAngle = start + 0.6f,
-                    sweepAngle = (sweep - 1.2f).coerceAtLeast(0.6f),
+                    color = colour,
+                    startAngle = start + 0.8f,
+                    sweepAngle = (sweep - 1.6f).coerceAtLeast(0.4f),
                     useCenter = false,
                     topLeft = Offset(inset, inset),
                     size = arcSize,
@@ -148,8 +196,17 @@ fun DonutChart(
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(centreLabel, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(centreCaption, style = MaterialTheme.typography.labelSmall)
+            Text(
+                centreLabel,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1
+            )
+            Text(
+                centreCaption,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
         }
     }
 }
@@ -162,28 +219,39 @@ fun BarRow(
     fraction: Float,
     color: Color,
     modifier: Modifier = Modifier,
-    caption: String? = null
+    caption: String? = null,
+    leading: @Composable (() -> Unit)? = null
 ) {
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    Column(modifier.fillMaxWidth().padding(vertical = 6.dp)) {
-        Row {
-            Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-            Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+    Row(
+        modifier.fillMaxWidth().padding(vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        leading?.invoke()
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    label,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1
+                )
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            ProgressTrack(fraction, color, Modifier.padding(top = 5.dp), height = 7.dp)
+            caption?.let {
+                Text(
+                    it,
+                    Modifier.padding(top = 3.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
-        Canvas(Modifier.fillMaxWidth().height(8.dp).padding(top = 3.dp)) {
-            val radius = size.height / 2
-            drawRoundRect(
-                color = track,
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius)
-            )
-            val width = size.width * fraction.coerceIn(0f, 1f)
-            if (width > 0f) drawRoundRect(
-                color = color,
-                size = Size(width.coerceAtLeast(radius * 2), size.height),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius)
-            )
-        }
-        caption?.let { Text(it, style = MaterialTheme.typography.labelSmall) }
     }
 }
 
@@ -203,25 +271,28 @@ fun SettlementBar(
      */
     scale: Float = 1f
 ) {
+    val palette = chartPalette
     val total = (settledPaise + outstandingPaise).coerceAtLeast(1)
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    Canvas(modifier.fillMaxWidth().height(10.dp)) {
-        val radius = size.height / 2
-        drawRoundRect(color = track, cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius))
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    val grow by animateFloatAsState(1f, tween(600), label = "settlement")
 
-        val span = size.width * scale.coerceIn(0f, 1f)
+    Canvas(modifier.fillMaxWidth().height(10.dp)) {
+        val radius = CornerRadius(size.height / 2)
+        drawRoundRect(color = track, cornerRadius = radius)
+
+        val span = size.width * scale.coerceIn(0f, 1f) * grow
         val settledWidth = span * (settledPaise.toFloat() / total)
         if (settledWidth > 0f) drawRoundRect(
-            color = ChartColors.settled,
+            color = palette.settled,
             size = Size(settledWidth, size.height),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius)
+            cornerRadius = radius
         )
         val outstandingWidth = span * (outstandingPaise.toFloat() / total)
         if (outstandingWidth > 0f) drawRoundRect(
-            color = ChartColors.others,
+            color = palette.others,
             topLeft = Offset(span - outstandingWidth, 0f),
             size = Size(outstandingWidth, size.height),
-            cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius)
+            cornerRadius = radius
         )
     }
 }
@@ -229,30 +300,41 @@ fun SettlementBar(
 /** Which days of the week the money actually goes out on. */
 @Composable
 fun WeekdayBars(points: List<Pair<String, Long>>, modifier: Modifier = Modifier) {
+    val palette = chartPalette
     val max = points.maxOfOrNull { it.second }?.takeIf { it > 0 } ?: 1L
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    Row(modifier.fillMaxWidth().height(96.dp), verticalAlignment = Alignment.Bottom) {
+    val busiest = points.maxByOrNull { it.second }?.first
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    val grow by animateFloatAsState(1f, tween(600), label = "weekdays")
+
+    Row(modifier.fillMaxWidth().height(104.dp), verticalAlignment = Alignment.Bottom) {
         points.forEach { (label, paise) ->
+            val isBusiest = label == busiest && paise > 0
             Column(
                 Modifier.weight(1f).fillMaxHeight(),
                 verticalArrangement = Arrangement.Bottom,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Canvas(Modifier.width(18.dp).weight(1f)) {
-                    val radius = 4.dp.toPx()
-                    val barHeight = (size.height * (paise.toFloat() / max)).coerceAtLeast(2f)
+                Canvas(Modifier.width(20.dp).weight(1f)) {
+                    val radius = CornerRadius(6.dp.toPx())
+                    val barHeight = (size.height * (paise.toFloat() / max) * grow).coerceAtLeast(3f)
+                    drawRoundRect(color = track, cornerRadius = radius)
                     drawRoundRect(
-                        color = track,
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius)
-                    )
-                    drawRoundRect(
-                        color = ChartColors.mine,
+                        color = if (isBusiest) palette.mine else palette.mine.copy(alpha = 0.55f),
                         topLeft = Offset(0f, size.height - barHeight),
                         size = Size(size.width, barHeight),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(radius)
+                        cornerRadius = radius
                     )
                 }
-                Text(label, style = MaterialTheme.typography.labelSmall, fontSize = 10.sp, maxLines = 1)
+                Text(
+                    label,
+                    Modifier.padding(top = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontSize = 10.sp,
+                    fontWeight = if (isBusiest) FontWeight.Bold else FontWeight.Normal,
+                    color = if (isBusiest) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.outline,
+                    maxLines = 1
+                )
             }
         }
     }

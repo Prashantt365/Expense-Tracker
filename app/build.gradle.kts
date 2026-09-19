@@ -96,6 +96,12 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.4")
     ksp("androidx.room:room-compiler:2.8.4")
     implementation("com.google.mlkit:text-recognition:16.0.1")
+
+    // Home screen widgets. Glance is Compose for RemoteViews: the widget is written as
+    // composables against the same Room database the app reads, rather than as a layout XML plus
+    // a RemoteViewsFactory, which is what keeps the widget's figures and the app's in step.
+    implementation("androidx.glance:glance-appwidget:1.2.0")
+    implementation("androidx.glance:glance-material3:1.2.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")

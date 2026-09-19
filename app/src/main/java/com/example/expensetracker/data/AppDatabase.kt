@@ -1,6 +1,8 @@
 package com.example.expensetracker.data
 
+import android.content.Context
 import androidx.room.Database
+import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
@@ -21,6 +23,30 @@ abstract class AppDatabase : RoomDatabase() {
 
     companion object {
         val DEFAULT_CATEGORIES = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Other")
+
+        @Volatile private var instance: AppDatabase? = null
+
+        /**
+         * The one open database, shared by the app and by the home screen widgets.
+         *
+         * Room is happy to hand out a second instance over the same file, and it is exactly the
+         * wrong thing here: the widget worker and the activity would each hold their own write
+         * connection and their own invalidation tracker, so a save in the app would not invalidate
+         * the widget's query and the widget would go on showing a stale total until something else
+         * woke it. One instance, one tracker.
+         */
+        fun get(context: Context): AppDatabase = instance ?: synchronized(this) {
+            instance ?: build(context.applicationContext).also { instance = it }
+        }
+
+        private fun build(context: Context): AppDatabase =
+            Room.databaseBuilder(context, AppDatabase::class.java, "spendwise.db")
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                // Version 1 predates anything worth keeping and never had a migration written for
+                // it. Everything from 2 on carries real history and now migrates properly.
+                .fallbackToDestructiveMigrationFrom(1)
+                .addCallback(seedCategories)
+                .build()
 
         /** The tables that leave the device. Attachments deliberately do not. */
         private val SYNCED_TABLES = listOf("expenses", "categories", "people", "expense_splits")

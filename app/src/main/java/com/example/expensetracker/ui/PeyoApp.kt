@@ -2,22 +2,49 @@ package com.example.expensetracker.ui
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Insights
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -26,7 +53,6 @@ import com.example.expensetracker.ContactCandidate
 import com.example.expensetracker.ContactImportPlanner
 import com.example.expensetracker.ExpenseInput
 import com.example.expensetracker.ExpenseViewModel
-import com.example.expensetracker.ImportState
 import com.example.expensetracker.LaunchAction
 import com.example.expensetracker.OcrReceiptParser
 import com.example.expensetracker.Period
@@ -40,11 +66,11 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.launch
 
-private enum class Screen(val label: String, val icon: ImageVector) {
-    DASHBOARD("Insights", Icons.Default.Home),
-    TRANSACTIONS("Expenses", Icons.AutoMirrored.Filled.ReceiptLong),
-    PEOPLE("People", Icons.Default.Group),
-    SETTINGS("Settings", Icons.Default.Settings)
+private enum class Screen(val label: String, val title: String, val icon: ImageVector) {
+    DASHBOARD("Insights", "Insights", Icons.Default.Insights),
+    TRANSACTIONS("Expenses", "Expenses", Icons.AutoMirrored.Filled.ReceiptLong),
+    PEOPLE("People", "Who owes you", Icons.Default.Group),
+    SETTINGS("Settings", "Settings", Icons.Default.Settings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -68,7 +94,13 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
     var settling by remember { mutableStateOf<PersonBalance?>(null) }
     var contactCandidates by remember { mutableStateOf<List<ContactCandidate>?>(null) }
     var contactSelection by remember { mutableStateOf(emptySet<String>()) }
-    var notice by remember { mutableStateOf<String?>(null) }
+    var addingPerson by remember { mutableStateOf(false) }
+
+    // Notices are a snackbar rather than a modal now. Every one of them reports something that has
+    // already happened successfully, and an alert the user has to dismiss to carry on is the wrong
+    // weight for "imported 12 transactions".
+    val snackbars = remember { SnackbarHostState() }
+    fun notify(message: String) = scope.launch { snackbars.showSnackbar(message) }
 
     val defaultCategory = categories.firstOrNull()?.name ?: "Other"
 
@@ -88,7 +120,8 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
             val names = ContactsReader.readNames(context)
             contactCandidates = ContactImportPlanner.plan(names, people.map { it.name })
             // Anything flagged as a likely duplicate starts unticked.
-            contactSelection = contactCandidates.orEmpty().filterNot { it.isFlagged }.map { it.name }.toSet()
+            contactSelection = contactCandidates.orEmpty()
+                .filterNot { it.isFlagged }.map { it.name }.toSet()
         }
     }
 
@@ -96,7 +129,7 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) loadContacts()
-        else notice = "Contacts permission is needed to import names."
+        else notify("Contacts permission is needed to import names.")
     }
 
     fun importContacts() {
@@ -150,69 +183,116 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
     }
 
     Scaffold(
-        topBar = { CenterAlignedTopAppBar(title = { Text("Peyo", fontWeight = FontWeight.Bold) }) },
+        topBar = {
+            CenterAlignedTopAppBar(
+                title = { Text(screen.title) },
+                actions = {
+                    // Adding somebody is the thing you have come to the People tab to do when it
+                    // is empty, and the one action there is no other route to from that tab.
+                    if (screen == Screen.PEOPLE) IconButton({ addingPerson = true }) {
+                        Icon(Icons.Default.PersonAdd, "Add a person")
+                    }
+                },
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background
+                )
+            )
+        },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
                 Screen.entries.forEach { destination ->
                     NavigationBarItem(
                         selected = screen == destination,
                         onClick = { screen = destination },
                         icon = { Icon(destination.icon, null) },
-                        label = { Text(destination.label) }
+                        label = { Text(destination.label) },
+                        alwaysShowLabel = false
                     )
                 }
             }
         },
+        snackbarHost = { SnackbarHost(snackbars) },
         floatingActionButton = {
-            if (screen == Screen.DASHBOARD || screen == Screen.TRANSACTIONS) {
-                FloatingActionButton(onClick = { openEditor() }) { Icon(Icons.Default.Add, "Add expense") }
+            AnimatedVisibility(
+                screen == Screen.DASHBOARD || screen == Screen.TRANSACTIONS,
+                enter = scaleIn(tween(180)) + fadeIn(),
+                exit = scaleOut(tween(180)) + fadeOut()
+            ) {
+                ExtendedFloatingActionButton(
+                    onClick = { openEditor() },
+                    icon = { Icon(Icons.Default.Add, null) },
+                    text = { Text("Add") }
+                )
             }
         }
     ) { padding ->
         val content = Modifier.padding(padding)
-        when (screen) {
-            Screen.DASHBOARD -> AnalyticsScreen(
-                report = remember(expenses, people, period) { Analytics.build(expenses, people, period) },
-                period = period,
-                onPeriodChange = { period = it },
-                onSettle = { personId, name ->
-                    settling = balances.firstOrNull { it.personId == personId }
-                        ?: PersonBalance(personId, name, 0)
-                },
-                modifier = content
-            )
-            Screen.TRANSACTIONS -> TransactionsScreen(
-                expenses = expenses,
-                onEdit = { details ->
-                    editing = ExpenseInput(
-                        id = details.expense.id,
-                        amount = (details.expense.amountPaise / 100.0).toString(),
-                        category = details.expense.category,
-                        note = details.expense.note,
-                        merchant = details.expense.merchant,
-                        paidAt = details.expense.paidAt,
-                        sourceUri = details.expense.sourceUri,
-                        shares = details.splits
-                            .filter { it.personId != null }
-                            .associate { it.personId!! to (it.amountPaise / 100.0).toString() },
-                        existingAttachments = details.attachments
-                    )
-                    fromScreenshot = false
-                    editorError = null
-                    duplicateOf = null
-                },
-                onDelete = vm::delete,
-                modifier = content
-            )
-            Screen.PEOPLE -> PeopleScreen(vm, balances, content)
-            Screen.SETTINGS -> SettingsScreen(
-                vm = vm,
-                categories = categories,
-                people = people,
-                onImportContacts = ::importContacts,
-                onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
-                modifier = content
-            )
+        // Crossfade rather than an instant swap: four tabs of dense, similarly coloured cards are
+        // hard to tell apart at the moment of switching, and a short fade is what makes it read as
+        // one screen replacing another.
+        AnimatedContent(
+            targetState = screen,
+            transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(180)) },
+            label = "screen"
+        ) { current ->
+            when (current) {
+                Screen.DASHBOARD -> AnalyticsScreen(
+                    report = remember(expenses, people, period) {
+                        Analytics.build(expenses, people, period)
+                    },
+                    period = period,
+                    onPeriodChange = { period = it },
+                    onSettle = { personId, name ->
+                        settling = balances.firstOrNull { it.personId == personId }
+                            ?: PersonBalance(personId, name, 0)
+                    },
+                    onAdd = { openEditor() },
+                    modifier = content
+                )
+
+                Screen.TRANSACTIONS -> TransactionsScreen(
+                    expenses = expenses,
+                    categories = categories.map { it.name },
+                    onEdit = { details ->
+                        editing = ExpenseInput(
+                            id = details.expense.id,
+                            amount = (details.expense.amountPaise / 100.0).toString(),
+                            category = details.expense.category,
+                            note = details.expense.note,
+                            merchant = details.expense.merchant,
+                            paidAt = details.expense.paidAt,
+                            sourceUri = details.expense.sourceUri,
+                            shares = details.splits
+                                .filter { it.personId != null }
+                                .associate { it.personId!! to (it.amountPaise / 100.0).toString() },
+                            existingAttachments = details.attachments
+                        )
+                        fromScreenshot = false
+                        editorError = null
+                        duplicateOf = null
+                    },
+                    onDelete = vm::delete,
+                    onAdd = { openEditor() },
+                    modifier = content
+                )
+
+                Screen.PEOPLE -> PeopleScreen(
+                    vm = vm,
+                    balances = balances,
+                    onAddPeople = { addingPerson = true },
+                    modifier = content
+                )
+
+                Screen.SETTINGS -> SettingsScreen(
+                    vm = vm,
+                    categories = categories,
+                    people = people,
+                    onImportContacts = ::importContacts,
+                    onImportPdf = { pdfPicker.launch(arrayOf("application/pdf")) },
+                    onNotice = { notify(it) },
+                    modifier = content
+                )
+            }
         }
     }
 
@@ -230,6 +310,7 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                     when (outcome) {
                         is SaveOutcome.Saved -> {
                             editing = null; editorError = null; duplicateOf = null
+                            notify(if (draft.id == 0L) "Expense saved." else "Changes saved.")
                         }
                         is SaveOutcome.Invalid -> {
                             editing = draft; editorError = outcome.message; duplicateOf = null
@@ -246,22 +327,31 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
 
     settling?.let { balance -> SettleDialog(vm, balance) { settling = null } }
 
-    ImportReviewDialog(
+    if (addingPerson) NameDialog("New person", "", { addingPerson = false }) { name ->
+        vm.addPerson(name)
+        addingPerson = false
+        notify("Added $name.")
+    }
+
+    ImportReviewScreen(
         state = importState,
         categories = categories,
         onToggle = vm::toggleImportRow,
+        onToggleAll = vm::toggleAllImportRows,
         onCategory = vm::setImportCategory,
         onConfirm = {
             vm.confirmImport { written ->
-                notice = if (written == 0) "Nothing imported: those rows are already recorded."
-                else "Imported $written transaction${if (written == 1) "" else "s"}."
+                notify(
+                    if (written == 0) "Nothing imported: those rows are already recorded."
+                    else "Imported $written transaction${if (written == 1) "" else "s"}."
+                )
             }
         },
         onDismiss = vm::cancelImport
     )
 
     contactCandidates?.let { candidates ->
-        ContactPickerDialog(
+        ContactPickerScreen(
             candidates = candidates,
             selected = contactSelection,
             onToggle = { name ->
@@ -270,19 +360,11 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
             },
             onConfirm = {
                 vm.addPeople(contactSelection.toList()) { added ->
-                    notice = "Added $added ${if (added == 1) "person" else "people"}."
+                    notify("Added $added ${if (added == 1) "person" else "people"}.")
                 }
                 contactCandidates = null
             },
             onDismiss = { contactCandidates = null }
-        )
-    }
-
-    notice?.let { message ->
-        AlertDialog(
-            onDismissRequest = { notice = null },
-            text = { Text(message) },
-            confirmButton = { Button({ notice = null }) { Text("OK") } }
         )
     }
 }

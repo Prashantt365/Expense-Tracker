@@ -1,0 +1,122 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the widget picker shows for the summary widget, at its 4x2 target size. The figures are
+  illustrative and the currency symbol is deliberately absent: the picker is rendered before the
+  app has been asked which currency to show, and a preview quoting rupees to somebody who has
+  chosen euros misrepresents the thing they are about to place.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="@drawable/widget_surface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_preview_caption"
+                android:textSize="12sp"
+                android:textColor="@color/widget_on_surface_variant" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/widget_preview_amount"
+                android:textSize="26sp"
+                android:textStyle="bold"
+                android:textColor="@color/widget_on_surface" />
+        </LinearLayout>
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_widget_sprout"
+            android:contentDescription="@string/app_name"
+            android:tint="@color/widget_on_accent_container" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:padding="10dp"
+        android:background="@drawable/widget_pill">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="@string/widget_preview_owed"
+            android:textSize="11sp"
+            android:textColor="@color/widget_on_accent_container" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/widget_preview_owed_amount"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="@color/widget_on_accent_container" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="9dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/widget_circle"
+            android:src="@drawable/ic_widget_add"
+            android:contentDescription="@string/shortcut_add_long"
+            android:tint="@color/widget_on_accent_container" />
+
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="9dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/widget_circle"
+            android:src="@drawable/ic_widget_split"
+            android:contentDescription="@string/shortcut_split_long"
+            android:tint="@color/widget_on_accent_container" />
+
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="9dp"
+            android:layout_marginEnd="8dp"
+            android:background="@drawable/widget_circle"
+            android:src="@drawable/ic_widget_people"
+            android:contentDescription="@string/shortcut_balances_long"
+            android:tint="@color/widget_on_accent_container" />
+
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:padding="9dp"
+            android:background="@drawable/widget_circle"
+            android:src="@drawable/ic_widget_import"
+            android:contentDescription="@string/shortcut_import_long"
+            android:tint="@color/widget_on_accent_container" />
+    </LinearLayout>
+</LinearLayout>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Shown for the instant between the launcher placing the widget and Glance composing the real
+  thing. Deliberately just the ground and the mark: anything with a figure on it would be a figure
+  read off no data at all.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_surface">
+
+    <ImageView
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="center"
+        android:src="@drawable/ic_widget_sprout"
+        android:contentDescription="@string/app_name"
+        android:alpha="0.4"
+        android:tint="@color/widget_on_surface_variant" />
+</FrameLayout>

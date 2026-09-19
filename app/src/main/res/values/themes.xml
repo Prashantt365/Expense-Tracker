@@ -1,3 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The platform theme, which only has to hold the window until Compose takes over.
+
+  It matters more than it looks. The window background is what is on screen between the launcher
+  animation and the first composed frame, and left at the platform default that moment is a flash
+  of white on a dark phone. Setting it to the same colour PeyoTheme paints makes the launch read
+  as one movement.
+
+  The bars are transparent because the activity draws edge to edge; enforcement is turned off so
+  that the framework does not paint its own scrim over the content underneath them.
+-->
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.ExpenseTracker" parent="android:style/Theme.Material.NoActionBar" />
+
+    <style name="Theme.Peyo" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/peyo_window_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">true</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="29">false</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
+    </style>
+
+    <!-- Kept so that an install upgrading from an older build does not lose its theme mid-flight. -->
+    <style name="Theme.ExpenseTracker" parent="Theme.Peyo" />
+
+    <color name="peyo_window_background">#F5FBF6</color>
 </resources>

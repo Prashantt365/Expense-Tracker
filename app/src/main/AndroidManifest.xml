@@ -22,7 +22,7 @@
         android:label="@string/app_name"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:theme="@style/Theme.ExpenseTracker">
+        android:theme="@style/Theme.Peyo">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -60,5 +60,37 @@
                 android:name="android.app.shortcuts"
                 android:resource="@xml/shortcuts" />
         </activity>
+
+        <!--
+          Home screen widgets. Both are Glance widgets, so the receiver is the framework's entry
+          point and the composable behind it does the drawing.
+
+          exported is true because the launcher is a different process and has to be able to bind
+          them; that is what a widget is. Neither accepts anything from the broadcast other than
+          the framework's own update and delete actions, and neither reads an extra.
+        -->
+        <receiver
+            android:name=".widget.SummaryWidgetReceiver"
+            android:label="@string/widget_summary_title"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_summary_info" />
+        </receiver>
+
+        <receiver
+            android:name=".widget.QuickAddWidgetReceiver"
+            android:label="@string/widget_quick_add_title"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_quick_add_info" />
+        </receiver>
     </application>
 </manifest>

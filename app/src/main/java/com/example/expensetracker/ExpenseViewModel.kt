@@ -16,6 +16,7 @@ import com.example.expensetracker.data.Person
 import com.example.expensetracker.sync.BackupSettings
 import com.example.expensetracker.sync.SyncEngine
 import com.example.expensetracker.sync.SyncOutcome
+import com.example.expensetracker.widget.PeyoWidgets
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -112,6 +113,14 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         // And once on open, which is what brings a second phone up to date and what finishes a
         // restore that a lost connection interrupted partway through.
         scheduleAutoBackup(OPEN_DELAY_MILLIS)
+
+        // Any home screen widget redraws whenever the expense list changes. Keyed on the list
+        // rather than on each write site, so a figure added by a statement import, a restore or a
+        // settle-up reaches the home screen the same way a typed expense does -- and a widget
+        // cannot be left stale by a future write path that forgets to say so.
+        viewModelScope.launch {
+            repository.expenses.collect { PeyoWidgets.refresh(getApplication()) }
+        }
     }
 
     /**
@@ -298,6 +307,19 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val selected = current.selected.toMutableSet()
         if (!selected.add(index)) selected.remove(index)
         _import.value = current.copy(selected = selected)
+    }
+
+    /**
+     * Ticks or unticks every row at once.
+     *
+     * A bank statement runs to dozens of rows and the common cases are "all of these" and "none of
+     * these, let me pick" -- both of which were previously several dozen taps.
+     */
+    fun toggleAllImportRows(select: Boolean) {
+        val current = _import.value as? ImportState.Review ?: return
+        _import.value = current.copy(
+            selected = if (select) current.rows.indices.toSet() else emptySet()
+        )
     }
 
     fun setImportCategory(category: String) {

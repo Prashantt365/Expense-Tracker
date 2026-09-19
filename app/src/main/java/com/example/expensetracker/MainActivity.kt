@@ -6,7 +6,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -14,10 +13,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.content.IntentCompat
 import com.example.expensetracker.sync.Account
+import com.example.expensetracker.sync.BackupSettings
 import com.example.expensetracker.ui.AuthMode
 import com.example.expensetracker.ui.AuthScreen
 import com.example.expensetracker.ui.CurrencyDialog
 import com.example.expensetracker.ui.PeyoApp
+import com.example.expensetracker.ui.theme.PeyoTheme
+import com.example.expensetracker.ui.theme.ThemeSettings
 import com.example.expensetracker.ui.WelcomeScreen
 
 /** What the app was asked to do on launch, whether by a share or a launcher shortcut. */
@@ -53,18 +55,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); enableEdgeToEdge()
-        // Before any composition, so the first frame already shows the right currency.
+        // Before any composition, so the first frame already shows the right currency and the
+        // theme the user picked rather than a light flash followed by the dark one.
         AppCurrency.load(this)
+        ThemeSettings.load(this)
         consume(intent)
         val account = Account(this)
+        val settings = BackupSettings(this)
         setContent {
-            MaterialTheme {
+            PeyoTheme {
                 // An account is offered on a cold start and can be declined. The app is usable
                 // offline by design, so the account gates the backup, not the app; a shared
                 // receipt waiting in [action] is applied once this clears either way, because
                 // PeyoApp reads it when it first composes.
+                // Signed in, or previously said no: either way the question has been answered and
+                // the app opens on itself. Only a genuinely fresh install sees the welcome screen.
                 var launch by rememberSaveable {
-                    mutableStateOf(if (account.stored() != null) Launch.Opening else Launch.Welcome)
+                    mutableStateOf(
+                        if (account.stored() != null || settings.accountDeclined) Launch.Opening
+                        else Launch.Welcome
+                    )
                 }
                 // Asked once, and only once the user has settled the account question, so the two
                 // decisions are not stacked on top of each other on a first launch. The stored
@@ -78,14 +88,14 @@ class MainActivity : ComponentActivity() {
                     Launch.Welcome -> WelcomeScreen(
                         onSignIn = { launch = Launch.SigningIn },
                         onCreateAccount = { launch = Launch.Registering },
-                        onSkip = { launch = Launch.Opening }
+                        onSkip = { settings.accountDeclined = true; launch = Launch.Opening }
                     )
 
                     Launch.SigningIn, Launch.Registering -> AuthScreen(
                         account = account,
                         initialMode = if (launch == Launch.SigningIn) AuthMode.SIGN_IN else AuthMode.SIGN_UP,
                         onSignedIn = { launch = Launch.Opening },
-                        onSkip = { launch = Launch.Opening },
+                        onSkip = { settings.accountDeclined = true; launch = Launch.Opening },
                         onBack = { launch = Launch.Welcome }
                     )
 

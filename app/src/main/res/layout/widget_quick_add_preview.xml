@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  What the widget picker shows for the one-button widget.
+
+  The mark alone, with no label: at its 1x1 target size the placed widget has no room for one
+  either, and a preview promising a caption the real thing drops is a preview that misleads.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="8dp"
+    android:background="@drawable/widget_button">
+
+    <ImageView
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:src="@drawable/ic_widget_add"
+        android:contentDescription="@string/widget_quick_add_title"
+        android:tint="@color/widget_on_accent_container" />
+</LinearLayout>

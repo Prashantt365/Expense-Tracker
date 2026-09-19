@@ -19,6 +19,9 @@ An offline-first Android expense tracker that supports manual entry and receipt 
   from the per-person rows
 - Import transactions from a bank or UPI statement PDF, reviewed row by row before anything saves
 - Launcher shortcuts for Add, Split, Import and Balances, each pinnable to the home screen
+- Two home screen widgets: a resizable spending summary with quick actions, and a one-tap
+  Add expense button
+- A theme of its own in light and dark, with the phone's wallpaper colours available on request
 - Add people from phone contacts, with near-duplicate names flagged rather than silently merged
 - An optional account, so transactions survive a reinstall and reach a second phone — backed up
   automatically, restorable on demand, and skippable entirely
@@ -163,6 +166,56 @@ are skipped on import.
 Tuned for the Google Pay transaction statement and common Indian bank and UPI layouts. If yours
 reads badly, the fix belongs in `StatementParser` and its unit tests.
 
+## Home screen widgets
+
+Two, both written with Glance -- Compose against RemoteViews -- so they draw from the same Room
+database and the same colour scheme the app does, rather than from a parallel copy of either.
+
+**Spending summary** is one widget at four sizes rather than four widgets. Which figures somebody
+wants is not really the question; how much of their home screen they will give up is. A 2x1 strip
+shows this month's own spending alone, a 2x2 adds what is still owed and who owes most of it, a 4x2
+adds Add, Split, Balances and Import as buttons, and a 4x4 adds the last four transactions. The
+launcher picks by the size actually on screen, so resizing it is how you choose.
+
+**Add expense** is a single button, for anybody who wants recording a payment to be one tap from
+the home screen and does not want a panel of figures sitting there the rest of the time.
+
+Both are placeable from Settings on a launcher that allows it, and by long-pressing the home screen
+on one that does not. Every button opens `MainActivity` with one of the four actions the launcher
+shortcuts already use, so a widget button and a long-press shortcut cannot drift apart.
+
+They redraw whenever the expense list changes, keyed on the list rather than on each place that
+writes to it -- so a statement import, a restore and a settle-up all reach the home screen the same
+way a typed expense does. The half-hourly `updatePeriodMillis` in the widget XML is only a backstop
+for a widget that has been sitting untouched; without the explicit refresh the total on the home
+screen could disagree with the total in the app for thirty minutes, which is the most visible way
+for a widget to look broken.
+
+The widgets follow the app's own theme setting, not the phone's. Somebody who has chosen Dark
+inside Peyo while their phone is on Light would otherwise get a light widget beside a dark app.
+
+## Look and feel
+
+The app has a palette of its own, built out from the sprout in the launcher icon rather than left
+on the Material baseline purple, with hand-written light and dark schemes in
+`ui/theme/Color.kt`. Dynamic colour is offered in Settings but is off by default: a tracker whose
+hero card means something by its colour -- green for what has come back, warm for what is still out
+-- cannot keep that promise on a scheme derived from somebody's wallpaper.
+
+Three things are worth knowing if you are changing the UI:
+
+- **A category's colour is a hash of its name**, not its rank in the current period, so Food is the
+  same green in a month it leads the list and a month it does not. `categoryColor` in
+  `ui/Components.kt` is the one place that decides it, and the donut, the bars, the badges and the
+  transaction rows all read from it.
+- **Charts take their palette from the theme** through `LocalChartPalette`. A single set of
+  mid-tones is the usual shortcut and it fails at both ends: dark enough to read on a pale surface
+  is too dark to read on a black one.
+- **Full-screen screens are overlays, not dialogs.** The editor, the statement review and the
+  contact picker are drawn in the activity's own window by `FullScreenOverlay`, with `BackHandler`
+  for the back gesture. In a dialog window each one measured the system bars twice and squeezed its
+  pinned action to a few pixels against the bottom of the screen.
+
 ## Contacts
 
 READ_CONTACTS is requested at runtime, only from the people settings, and only when you ask to
@@ -206,5 +259,5 @@ notifications, contacts, or bank accounts.
 
 ## Next recommended iteration
 
-Recurring budgets, CSV export, a launcher icon, and settling by recording a repayment transaction
-rather than only flagging shares as settled.
+Recurring budgets, CSV export, and settling by recording a repayment transaction rather than only
+flagging shares as settled.

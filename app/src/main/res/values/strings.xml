@@ -9,4 +9,16 @@
     <string name="shortcut_import_long">Import from PDF</string>
     <string name="shortcut_balances_short">Balances</string>
     <string name="shortcut_balances_long">Who owes you</string>
+
+    <!-- Home screen widgets. The descriptions are what the widget picker shows underneath each. -->
+    <string name="widget_summary_title">Spending summary</string>
+    <string name="widget_summary_description">This month\'s spending, what you are owed, and quick actions. Resize it for more.</string>
+    <string name="widget_quick_add_title">Add expense</string>
+    <string name="widget_quick_add_description">One tap to record a payment.</string>
+
+    <!-- Illustrative figures in the widget picker preview, never shown on a placed widget. -->
+    <string name="widget_preview_caption">Spent this month</string>
+    <string name="widget_preview_amount">12,480</string>
+    <string name="widget_preview_owed">Owed to you</string>
+    <string name="widget_preview_owed_amount">3,150</string>
 </resources>

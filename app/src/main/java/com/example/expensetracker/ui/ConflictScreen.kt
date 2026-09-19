@@ -8,9 +8,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.MergeType
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -78,6 +81,7 @@ fun ConflictDialog(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = { Icon(Icons.AutoMirrored.Filled.MergeType, null) },
         title = {
             Text(
                 if (conflicts.size == 1) "1 change needs a decision"
@@ -89,7 +93,8 @@ fun ConflictDialog(
                 Text(
                     "These were edited on this phone and somewhere else since they last agreed. " +
                         "Nothing is changed until you choose.",
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 LazyColumn(
                     Modifier.heightIn(max = 380.dp),
@@ -97,16 +102,12 @@ fun ConflictDialog(
                 ) {
                     items(conflicts, key = { it.id }) { conflict ->
                         val table = conflict.table
-                        Card(Modifier.fillMaxWidth()) {
+                        PeyoCard(container = MaterialTheme.colorScheme.surfaceContainer) {
                             Column(
-                                Modifier.padding(12.dp),
+                                Modifier.padding(14.dp),
                                 verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(
-                                    table?.label() ?: conflict.entity,
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Tag(table?.label() ?: conflict.entity)
                                 if (table == null) {
                                     // A conflict recorded by a newer build than this one. Showing
                                     // it as undecidable beats hiding a change that is being held.
@@ -114,19 +115,35 @@ fun ConflictDialog(
                                 } else {
                                     Text(
                                         "On this phone, ${whenEdited(conflict.localUpdatedAt)}",
-                                        style = MaterialTheme.typography.labelSmall
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    Text(describe(table, conflict.localJson.asJsonObject()))
+                                    Text(
+                                        describe(table, conflict.localJson.asJsonObject()),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                     Text(
                                         "Elsewhere, ${whenEdited(conflict.remoteUpdatedAt)}",
-                                        style = MaterialTheme.typography.labelSmall
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
-                                    Text(describe(table, conflict.remoteJson.asJsonObject()))
-                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Button({ onResolve(conflict.id, true) }) { Text("Keep mine") }
-                                        OutlinedButton({ onResolve(conflict.id, false) }) {
-                                            Text("Use theirs")
-                                        }
+                                    Text(
+                                        describe(table, conflict.remoteJson.asJsonObject()),
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                    Row(
+                                        Modifier.padding(top = 4.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Button(
+                                            { onResolve(conflict.id, true) },
+                                            Modifier.weight(1f)
+                                        ) { Text("Keep mine") }
+                                        OutlinedButton(
+                                            { onResolve(conflict.id, false) },
+                                            Modifier.weight(1f)
+                                        ) { Text("Use theirs") }
                                     }
                                 }
                             }

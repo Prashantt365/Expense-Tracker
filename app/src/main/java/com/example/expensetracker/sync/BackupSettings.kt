@@ -22,7 +22,21 @@ class BackupSettings(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_BACKUP, true)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_BACKUP, value).apply()
 
+    /**
+     * Whether the user has already answered the account question by declining it.
+     *
+     * Without this the welcome screen was shown on every cold start to anybody using the app
+     * offline, which is the majority case the app is built for: they said no on Monday and were
+     * asked again on Tuesday, and again from every launcher shortcut and every home screen
+     * widget, each of which landed on a sales pitch instead of the thing they tapped. Signing in
+     * is still one tap away in Settings, so nothing is lost by taking the answer at its word.
+     */
+    var accountDeclined: Boolean
+        get() = prefs.getBoolean(KEY_ACCOUNT_DECLINED, false)
+        set(value) = prefs.edit().putBoolean(KEY_ACCOUNT_DECLINED, value).apply()
+
     private companion object {
         const val KEY_AUTO_BACKUP = "autoBackup"
+        const val KEY_ACCOUNT_DECLINED = "accountDeclined"
     }
 }

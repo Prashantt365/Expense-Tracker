@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Only the widget picker previews use these. The widgets themselves take their colours from the
+  same Compose scheme the app does, so there is deliberately no second palette to keep in step -
+  these four exist because a preview layout is plain RemoteViews XML and cannot read one.
+-->
+<resources>
+    <color name="widget_surface">#F5FBF6</color>
+    <color name="widget_on_surface">#171D1A</color>
+    <color name="widget_on_surface_variant">#3F4945</color>
+    <color name="widget_accent_container">#8FF7CF</color>
+    <color name="widget_on_accent_container">#002117</color>
+</resources>
