@@ -1,4 +1,4 @@
--- Spendwise remote schema.
+-- Peyo remote schema.
 --
 -- Run this once in the Supabase SQL editor. It is written to be re-runnable: every statement is
 -- guarded, so applying it twice changes nothing.

@@ -30,7 +30,7 @@ object LocalBackup {
 
     // Written into the file itself and checked on import, so it keeps the name it was first
     // published under -- renaming it would make every backup taken so far unreadable.
-    const val FORMAT = "spendwise-backup"
+    const val FORMAT = "peyo-backup"
     const val VERSION = 1
     const val MIME = "application/json"
 

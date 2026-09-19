@@ -45,7 +45,7 @@ class SyncEngine(
 ) {
 
     private val marks = context.applicationContext
-        .getSharedPreferences("spendwise.sync", Context.MODE_PRIVATE)
+        .getSharedPreferences("peyo.sync", Context.MODE_PRIVATE)
 
     /** When the last run finished, so the UI can say so across process restarts. */
     val lastSyncAt: Long get() = marks.getLong(KEY_LAST_SYNC_AT, 0L)

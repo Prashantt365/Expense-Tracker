@@ -4,7 +4,7 @@
   the device by Android's automatic backup.
 -->
 <full-backup-content>
-    <exclude domain="database" path="spendwise.db" />
-    <exclude domain="database" path="spendwise.db-shm" />
-    <exclude domain="database" path="spendwise.db-wal" />
+    <exclude domain="database" path="peyo.db" />
+    <exclude domain="database" path="peyo.db-shm" />
+    <exclude domain="database" path="peyo.db-wal" />
 </full-backup-content>

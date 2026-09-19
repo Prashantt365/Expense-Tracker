@@ -29,7 +29,7 @@ import androidx.core.view.WindowCompat
  */
 object ThemeSettings {
 
-    private const val PREFS = "spendwise.settings"
+    private const val PREFS = "peyo.settings"
     private const val KEY_DYNAMIC = "dynamicColor"
     private const val KEY_MODE = "themeMode"
 

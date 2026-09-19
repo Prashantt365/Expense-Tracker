@@ -16,7 +16,7 @@ import android.content.Context
 class BackupSettings(context: Context) {
 
     private val prefs = context.applicationContext
-        .getSharedPreferences("spendwise.settings", Context.MODE_PRIVATE)
+        .getSharedPreferences("peyo.settings", Context.MODE_PRIVATE)
 
     var autoBackup: Boolean
         get() = prefs.getBoolean(KEY_AUTO_BACKUP, true)

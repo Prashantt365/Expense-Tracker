@@ -75,7 +75,7 @@ sealed interface SignUpResult {
 class Account(context: Context) {
 
     private val prefs = context.applicationContext
-        .getSharedPreferences("spendwise.account", Context.MODE_PRIVATE)
+        .getSharedPreferences("peyo.account", Context.MODE_PRIVATE)
 
     fun stored(): Session? {
         val userId = prefs.getString(KEY_USER_ID, null) ?: return null

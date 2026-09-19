@@ -20,7 +20,7 @@ object AppCurrency {
     /** Used when the phone reports a region with no currency of its own, which a tablet can. */
     const val FALLBACK = "INR"
 
-    private const val PREFS = "spendwise.settings"
+    private const val PREFS = "peyo.settings"
     private const val KEY = "currencyCode"
 
     /**

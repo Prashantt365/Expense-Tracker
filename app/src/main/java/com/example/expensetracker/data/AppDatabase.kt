@@ -40,7 +40,7 @@ abstract class AppDatabase : RoomDatabase() {
         }
 
         private fun build(context: Context): AppDatabase =
-            Room.databaseBuilder(context, AppDatabase::class.java, "spendwise.db")
+            Room.databaseBuilder(context, AppDatabase::class.java, "peyo.db")
                 .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
                 // Version 1 predates anything worth keeping and never had a migration written for
                 // it. Everything from 2 on carries real history and now migrates properly.
