@@ -1,6 +1,7 @@
 package com.example.expensetracker.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
+import kotlinx.coroutines.launch
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -26,6 +27,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CalendarToday
 import androidx.compose.material.icons.filled.Close
@@ -63,6 +65,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -92,9 +95,12 @@ fun ExpenseEditor(
     fromScreenshot: Boolean,
     error: String?,
     duplicateOf: Expense?,
+    onAddCategoryInline: suspend (String) -> Unit,
+    onAddPersonInline: suspend (String) -> Long,
     onDismiss: () -> Unit,
     onSave: (ExpenseInput, force: Boolean) -> Unit
 ) {
+    val scope = rememberCoroutineScope()
     var draft by remember(input) { mutableStateOf(input) }
     var showPersonMenu by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<AttachmentPreview?>(null) }
@@ -201,13 +207,52 @@ fun ExpenseEditor(
             }
 
             Section("Category")
-            if (categories.isEmpty()) Text(
-                "No categories yet. Add some under Settings.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            ) else FlowChips(categories.map { it.name }, draft.category) {
-                categoryChosen = true
-                draft = draft.copy(category = it)
+            var showAddCategoryDialog by remember { mutableStateOf(false) }
+            var newCategoryName by remember { mutableStateOf("") }
+            if (showAddCategoryDialog) {
+                AlertDialog(
+                    onDismissRequest = { showAddCategoryDialog = false },
+                    title = { Text("Add new category") },
+                    text = {
+                        OutlinedTextField(
+                            value = newCategoryName,
+                            onValueChange = { newCategoryName = it },
+                            label = { Text("Category name") },
+                            singleLine = true
+                        )
+                    },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            if (newCategoryName.isNotBlank()) {
+                                scope.launch {
+                                    onAddCategoryInline(newCategoryName)
+                                    draft = draft.copy(category = newCategoryName.trim())
+                                    categoryChosen = true
+                                    newCategoryName = ""
+                                    showAddCategoryDialog = false
+                                }
+                            }
+                        }) { Text("Add") }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showAddCategoryDialog = false }) { Text("Cancel") }
+                    }
+                )
+            }
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Box(modifier = Modifier.weight(1f)) {
+                    if (categories.isEmpty()) Text(
+                        "No categories yet. Add some under Settings.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    ) else FlowChips(categories.map { it.name }, draft.category) {
+                        categoryChosen = true
+                        draft = draft.copy(category = it)
+                    }
+                }
+                IconButton(onClick = { showAddCategoryDialog = true }) {
+                    Icon(Icons.Default.Add, "Add Category")
+                }
             }
 
             Section("Attachments")
@@ -297,14 +342,15 @@ fun ExpenseEditor(
                     onRemove = { draft = draft.copy(shares = draft.shares - personId) }
                 )
             }
-            val available = people.filter { it.id !in draft.shares.keys }
-            if (available.isNotEmpty()) Box {
+            var newPersonName by remember { mutableStateOf("") }
+            Box {
                 OutlinedButton({ showPersonMenu = true }) {
                     Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
                     Gap()
                     Text("Add person")
                 }
                 DropdownMenu(showPersonMenu, { showPersonMenu = false }) {
+                    val available = people.filter { it.id !in draft.shares.keys }
                     available.forEach { person ->
                         DropdownMenuItem(
                             text = { Text(person.name) },
@@ -315,6 +361,37 @@ fun ExpenseEditor(
                             }
                         )
                     }
+                    if (available.isNotEmpty()) {
+                        HorizontalDivider()
+                    }
+                    DropdownMenuItem(
+                        text = {
+                            OutlinedTextField(
+                                value = newPersonName,
+                                onValueChange = { newPersonName = it },
+                                placeholder = { Text("New person name...") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                trailingIcon = {
+                                    if (newPersonName.isNotBlank()) {
+                                        IconButton(onClick = {
+                                            scope.launch {
+                                                val newId = onAddPersonInline(newPersonName)
+                                                if (newId != 0L) {
+                                                    draft = draft.copy(shares = draft.shares + (newId to ""))
+                                                }
+                                                newPersonName = ""
+                                                showPersonMenu = false
+                                            }
+                                        }) {
+                                            Icon(Icons.Default.Check, "Add")
+                                        }
+                                    }
+                                }
+                            )
+                        },
+                        onClick = { /* Do nothing */ }
+                    )
                 }
             }
             if (draft.shares.isNotEmpty()) {

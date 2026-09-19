@@ -59,9 +59,13 @@ class SummaryWidget : GlanceAppWidget() {
         // Read before provideContent, not inside it: a Glance composition has no coroutine scope
         // of its own to suspend in, and a widget that composes before its data has arrived is a
         // widget that shows zero for a frame and then flickers.
-        loadWidgetTheme(context)
-        val snapshot = WidgetData.load(context)
-        val dark = widgetIsDark(context)
+        val snapshot = try {
+            loadWidgetTheme(context)
+            WidgetData.load(context)
+        } catch (e: Exception) {
+            WidgetSnapshot.Empty
+        }
+        val dark = try { widgetIsDark(context) } catch (e: Exception) { false }
         provideContent {
             PeyoGlanceTheme(dark) { SummaryContent(snapshot) }
         }
@@ -287,8 +291,8 @@ class QuickAddWidget : GlanceAppWidget() {
     override val sizeMode = SizeMode.Exact
 
     override suspend fun provideGlance(context: Context, id: GlanceId) {
-        loadWidgetTheme(context)
-        val dark = widgetIsDark(context)
+        try { loadWidgetTheme(context) } catch (_: Exception) {}
+        val dark = try { widgetIsDark(context) } catch (_: Exception) { false }
         provideContent {
             PeyoGlanceTheme(dark) {
                 val size = LocalSize.current

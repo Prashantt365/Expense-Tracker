@@ -131,15 +131,17 @@ class ExpenseRepository(context: Context) {
 
     suspend fun categoryUsage(name: String) = categoryDao.expenseCount(name)
 
-    suspend fun addPerson(name: String) {
+    suspend fun addPerson(name: String): Long {
         val trimmed = name.trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty()) return 0L
+        val active = personDao.activeByName(trimmed)
+        if (active != null) return active.id
         val buried = personDao.deletedByName(trimmed)
         if (buried != null) {
             personDao.update(buried.copy(deletedAt = null, updatedAt = stamp(), syncedAt = null))
-            return
+            return buried.id
         }
-        personDao.insert(Person(name = trimmed))
+        return personDao.insert(Person(name = trimmed))
     }
 
     suspend fun renamePerson(person: Person, newName: String) {

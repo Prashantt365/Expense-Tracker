@@ -269,6 +269,18 @@ class OcrReceiptParserTest {
         assertEquals("pizza", draft.note)
     }
 
+    @Test fun `reads the amount when OCR misreads the rupee glyph as a digit like 7 or 2`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            To Swiggy
+            7182
+            pizza
+            Completed
+            """.trimIndent()
+        )
+        assertEquals("182", draft.amount)
+    }
+
     @Test fun `reads the amount from the confirmation sentence when the headline is lost`() {
         val draft = OcrReceiptParser.parse(
             """

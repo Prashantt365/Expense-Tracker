@@ -258,6 +258,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     fun reopenEverything(personId: Long) = viewModelScope.launch { repository.reopenEverything(personId) }
 
     fun addCategory(name: String) = viewModelScope.launch { if (name.isNotBlank()) repository.addCategory(name) }
+    suspend fun addCategoryInline(name: String) { if (name.isNotBlank()) repository.addCategory(name) }
     fun renameCategory(category: com.example.expensetracker.data.Category, newName: String) =
         viewModelScope.launch { repository.renameCategory(category, newName) }
 
@@ -269,6 +270,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
 
     fun addPerson(name: String) = viewModelScope.launch { if (name.isNotBlank()) repository.addPerson(name) }
+    suspend fun addPersonInline(name: String): Long = repository.addPerson(name)
     fun renamePerson(person: Person, newName: String) = viewModelScope.launch { repository.renamePerson(person, newName) }
 
     fun deletePerson(person: Person, onBlocked: (Int) -> Unit) = viewModelScope.launch {

@@ -177,4 +177,7 @@ interface PersonDao {
 
     @Query("SELECT * FROM people WHERE name = :name AND deletedAt IS NOT NULL LIMIT 1")
     suspend fun deletedByName(name: String): Person?
+
+    @Query("SELECT * FROM people WHERE name = :name AND deletedAt IS NULL LIMIT 1")
+    suspend fun activeByName(name: String): Person?
 }

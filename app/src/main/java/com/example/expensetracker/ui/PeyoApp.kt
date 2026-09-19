@@ -304,6 +304,8 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
             fromScreenshot = fromScreenshot,
             error = editorError,
             duplicateOf = duplicateOf,
+            onAddCategoryInline = vm::addCategoryInline,
+            onAddPersonInline = vm::addPersonInline,
             onDismiss = { editing = null; editorError = null; duplicateOf = null },
             onSave = { draft, force ->
                 vm.save(draft, force) { outcome ->

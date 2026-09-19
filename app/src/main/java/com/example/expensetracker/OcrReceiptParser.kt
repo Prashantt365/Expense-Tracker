@@ -30,12 +30,10 @@ object OcrReceiptParser {
      * A number wearing a single leading character, which on a Google Pay receipt is the rupee
      * glyph ML Kit failed to read. The oversized headline defeats the Latin model in both
      * directions -- it comes back as a stray symbol ("*450") but just as often as a stray letter
-     * ("z182", "R182") -- so the character is matched loosely rather than by name.
-     *
-     * Exactly one character is what keeps a masked account tail ("\u2022\u20225678") out, and
-     * requiring it to sit flush against the digits is what keeps a label ("UPI 182") out.
+     * ("z182", "R182") or digits ("7182", "2182", "1182") where the glyph was misread as 7, 2, 1, etc.
+     * So we look for numbers of length >=2 prefixed by a character/digit where the prefix can be anything.
      */
-    private val glyphedAmount = Regex("^[^0-9\\s]\\s?([0-9][0-9,]*(?:\\.[0-9]{1,2})?)$")
+    private val glyphedAmount = Regex("^.\\s?([0-9]{2,}[0-9,]*(?:\\.[0-9]{1,2})?)$")
 
     /**
      * The amount restated in the confirmation sentence of the expanded details card,
