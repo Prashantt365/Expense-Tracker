@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Delete your Peyo account and data</title>
+<style>
+  :root {
+    --ink: #171d1a;
+    --muted: #3f4945;
+    --bg: #f5fbf6;
+    --card: #e9f0eb;
+    --accent: #00674f;
+    --accent-contrast: #ffffff;
+    --border: #bfc9c3;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #dee4df;
+      --muted: #bfc9c3;
+      --bg: #0f1512;
+      --card: #1b211e;
+      --accent: #72dbb4;
+      --accent-contrast: #002117;
+      --border: #3f4945;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+  }
+  main {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 40px 20px 80px;
+  }
+  h1 {
+    font-size: 1.7rem;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin-top: 0;
+    margin-bottom: 32px;
+  }
+  h2 {
+    font-size: 1.15rem;
+    margin-top: 40px;
+    margin-bottom: 12px;
+  }
+  p, li {
+    color: var(--ink);
+  }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+  .card ol {
+    margin: 0;
+    padding-left: 20px;
+  }
+  .card li {
+    margin-bottom: 10px;
+  }
+  .card li:last-child {
+    margin-bottom: 0;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 12px 0;
+  }
+  th, td {
+    text-align: left;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+    font-size: 0.95rem;
+  }
+  th {
+    color: var(--muted);
+    font-weight: 600;
+    width: 40%;
+  }
+  a {
+    color: var(--accent);
+  }
+  .contact {
+    display: inline-block;
+    margin-top: 8px;
+    padding: 10px 20px;
+    background: var(--accent);
+    color: var(--accent-contrast);
+    border-radius: 999px;
+    text-decoration: none;
+    font-weight: 600;
+  }
+  footer {
+    margin-top: 48px;
+    color: var(--muted);
+    font-size: 0.85rem;
+  }
+  code {
+    background: var(--card);
+    padding: 2px 6px;
+    border-radius: 6px;
+    font-size: 0.9em;
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Delete your Peyo account and data</h1>
+  <p class="subtitle">Peyo is an offline-first expense tracker. Account deletion below covers the
+  optional cloud account only &mdash; nothing on your phone requires it.</p>
+
+  <h2>Option 1: Delete it yourself, in the app</h2>
+  <div class="card">
+    <ol>
+      <li>Open <strong>Peyo</strong> and go to the <strong>Settings</strong> tab.</li>
+      <li>Under <strong>Account</strong>, find the row showing your signed-in email.</li>
+      <li>Tap <strong>Delete account</strong>, below the sign-out icon.</li>
+      <li>Read the confirmation and tap <strong>Delete account</strong> again to confirm.</li>
+    </ol>
+  </div>
+  <p>This removes your account and everything it backed up from our server
+  <strong>immediately</strong> &mdash; no waiting period, no separate request. You will be
+  signed out. Nothing on your phone is touched; your local expenses, people, categories and
+  receipts stay exactly where they were, since that data never required an account to begin with.</p>
+
+  <h2>Option 2: Ask us to delete it for you</h2>
+  <p>If you can no longer access the app, or would rather someone else handle it, email us from
+  the address your account is registered under and we will delete it on your behalf.</p>
+  <a class="contact" href="mailto:YOUR_SUPPORT_EMAIL@example.com?subject=Delete%20my%20Peyo%20account">
+    Email YOUR_SUPPORT_EMAIL@example.com
+  </a>
+  <p>We aim to complete manually requested deletions within 30 days.</p>
+
+  <h2>What gets deleted, and what doesn't</h2>
+  <table>
+    <tr><th>Deleted from our server</th><td>Your account (email, password), and every expense,
+      category, person and split you backed up to it.</td></tr>
+    <tr><th>Not affected</th><td>Anything stored on your phone: your expenses, categories, people,
+      and receipt photos or screenshots. Peyo works fully offline, so this data is yours
+      regardless of whether you ever had an account, and deleting the account does not erase or
+      change it. Receipts are never uploaded in the first place, so there is nothing of theirs to
+      delete on our end.</td></tr>
+    <tr><th>When it happens</th><td>Immediately for the in-app option; within 30 days for an
+      emailed request.</td></tr>
+  </table>
+
+  <p>For the full detail on what Peyo collects and why, see our
+  <a href="privacy-policy.html">Privacy Policy</a>.</p>
+
+  <footer>
+    Peyo &middot; <code>com.peyo.app</code>
+  </footer>
+</main>
+</body>
+</html>
