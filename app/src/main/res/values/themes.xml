@@ -22,8 +22,5 @@
         <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
     </style>
 
-    <!-- Kept so that an install upgrading from an older build does not lose its theme mid-flight. -->
-    <style name="Theme.ExpenseTracker" parent="Theme.Peyo" />
-
     <color name="peyo_window_background">#F5FBF6</color>
 </resources>

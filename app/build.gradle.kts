@@ -7,11 +7,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.expensetracker"
+    namespace = "com.peyo.app"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.expensetracker"
+        applicationId = "com.peyo.app"
         minSdk = 26
         targetSdk = 35
         versionCode = 1

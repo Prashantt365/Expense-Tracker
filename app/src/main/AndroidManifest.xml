@@ -49,10 +49,10 @@
 
             <!-- Launcher shortcuts, each of which can also be pinned to the home screen. -->
             <intent-filter>
-                <action android:name="com.example.expensetracker.ADD_EXPENSE" />
-                <action android:name="com.example.expensetracker.SPLIT_EXPENSE" />
-                <action android:name="com.example.expensetracker.IMPORT_PDF" />
-                <action android:name="com.example.expensetracker.OPEN_BALANCES" />
+                <action android:name="com.peyo.app.ADD_EXPENSE" />
+                <action android:name="com.peyo.app.SPLIT_EXPENSE" />
+                <action android:name="com.peyo.app.IMPORT_PDF" />
+                <action android:name="com.peyo.app.OPEN_BALANCES" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
 

@@ -13,9 +13,9 @@
         android:shortcutShortLabel="@string/shortcut_add_short"
         android:shortcutLongLabel="@string/shortcut_add_long">
         <intent
-            android:action="com.example.expensetracker.ADD_EXPENSE"
-            android:targetPackage="com.example.expensetracker"
-            android:targetClass="com.example.expensetracker.MainActivity" />
+            android:action="com.peyo.app.ADD_EXPENSE"
+            android:targetPackage="com.peyo.app"
+            android:targetClass="com.peyo.app.MainActivity" />
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
 
@@ -26,9 +26,9 @@
         android:shortcutShortLabel="@string/shortcut_split_short"
         android:shortcutLongLabel="@string/shortcut_split_long">
         <intent
-            android:action="com.example.expensetracker.SPLIT_EXPENSE"
-            android:targetPackage="com.example.expensetracker"
-            android:targetClass="com.example.expensetracker.MainActivity" />
+            android:action="com.peyo.app.SPLIT_EXPENSE"
+            android:targetPackage="com.peyo.app"
+            android:targetClass="com.peyo.app.MainActivity" />
     </shortcut>
 
     <shortcut
@@ -38,9 +38,9 @@
         android:shortcutShortLabel="@string/shortcut_import_short"
         android:shortcutLongLabel="@string/shortcut_import_long">
         <intent
-            android:action="com.example.expensetracker.IMPORT_PDF"
-            android:targetPackage="com.example.expensetracker"
-            android:targetClass="com.example.expensetracker.MainActivity" />
+            android:action="com.peyo.app.IMPORT_PDF"
+            android:targetPackage="com.peyo.app"
+            android:targetClass="com.peyo.app.MainActivity" />
     </shortcut>
 
     <shortcut
@@ -50,9 +50,9 @@
         android:shortcutShortLabel="@string/shortcut_balances_short"
         android:shortcutLongLabel="@string/shortcut_balances_long">
         <intent
-            android:action="com.example.expensetracker.OPEN_BALANCES"
-            android:targetPackage="com.example.expensetracker"
-            android:targetClass="com.example.expensetracker.MainActivity" />
+            android:action="com.peyo.app.OPEN_BALANCES"
+            android:targetPackage="com.peyo.app"
+            android:targetClass="com.peyo.app.MainActivity" />
     </shortcut>
 
 </shortcuts>
