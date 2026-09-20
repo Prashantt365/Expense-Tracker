@@ -1,0 +1,189 @@
+PRIVACY POLICY FOR PEYO
+
+Last updated: 21 September 2026
+
+This policy explains what Peyo ("the app") does with your data. Peyo is an
+expense tracker built to work fully offline, with an optional account for
+backup. This document describes the app's behavior as built; if you are
+publishing Peyo under your own name or organization, replace the bracketed
+placeholders below with your own details before distributing it.
+
+Developer / data controller: [YOUR NAME OR COMPANY NAME]
+Contact email: [YOUR SUPPORT EMAIL ADDRESS]
+App package: com.peyo.app
+
+
+1. SUMMARY
+
+Everything you record in Peyo is written to a private database on your own
+phone first. An account is optional and exists only to back that data up and
+bring it to a second phone; the app is fully usable, offline, without one.
+Peyo does not show ads, does not use analytics or tracking SDKs, does not
+sell or share your data with advertisers, and does not read your SMS
+messages, notifications, call log, or Google Pay account.
+
+
+2. INFORMATION PEYO STORES ON YOUR DEVICE
+
+The following is stored only in a local, app-private database on your phone,
+and is not visible to other apps:
+
+  - Expenses you record: amount, category, merchant/payee, your note, date
+    and time.
+  - People you add to split expenses with, and the split amounts,
+    percentages, or equal shares you assign them.
+  - Categories you create or rename.
+  - Settlement status of each shared expense (settled or outstanding).
+  - Receipt screenshots and other images you attach to an expense. These are
+    copied into private app storage on your device and are never uploaded,
+    including when the app has an account signed in.
+  - Your chosen display currency and app theme.
+
+Receipts and attachments are excluded from Android's automatic device backup
+and are excluded from every sync and local export described below. They
+never leave your device by any feature this app provides.
+
+
+3. ON-DEVICE RECEIPT AND STATEMENT READING (OCR)
+
+When you share a payment screenshot with Peyo, or import a bank or UPI
+statement PDF, the app uses Google's ML Kit on-device text recognition to
+read the amount, payee, and note out of the image. This recognition runs
+entirely on your phone; the image and the text extracted from it are not
+sent to Google, to us, or to any server. You review and can edit every
+field before anything is saved.
+
+
+4. CONTACTS
+
+Peyo requests the READ_CONTACTS permission only when you choose to import
+people from your phone's contact list, from the People section of Settings.
+If granted:
+
+  - Only contact names are read, to offer them as people to add.
+  - Nothing is written back to your contacts, and no contact data (names,
+    phone numbers, or anything else) is sent off your device.
+  - You choose which names, if any, to add before anything is saved.
+
+You can decline this permission and add people by typing their names
+instead; every other feature of the app works without it.
+
+
+5. OPTIONAL ACCOUNT AND CLOUD BACKUP
+
+Creating an account is entirely optional and is offered so your data can
+survive a reinstall or reach a second phone. If Peyo is built with a backend
+configured, and you choose to sign in or create an account, the following is
+sent to that backend (Supabase, described in section 6):
+
+  - Your email address, used to authenticate you.
+  - Your password, handled by the authentication provider; the app itself
+    never stores or transmits it in plain form beyond the sign-in request.
+  - Your expenses, categories, people, and split records, as described in
+    section 2, EXCLUDING receipt images and other attachments, which never
+    leave your device.
+
+This sync happens automatically a few seconds after you record or edit
+something, and again when the app opens, unless you turn automatic backup
+off in Settings; a manual "Back up now" button is available either way.
+Restoring reads that same data back down onto a device, for example after
+reinstalling the app.
+
+If Peyo is built without a backend configured, the account screens are
+hidden entirely and no network request of this kind is ever made; the app
+runs wholly offline and only the local file backup described in section 7 is
+available.
+
+You can sign out and stop syncing at any time from Settings. You can also
+delete your account entirely from Settings, under Account: this permanently
+removes your account and every row it owns from the backend -- your
+expenses, categories, people, and splits as backed up there -- right away,
+with no separate request needed. It does not touch what is on your device;
+you are simply signed out, and the data already on your phone remains
+yours to keep or export locally. If you would rather ask us to do this for
+you, or run into trouble with the in-app option, contact
+[YOUR SUPPORT EMAIL ADDRESS].
+
+
+6. THIRD-PARTY SERVICE: SUPABASE
+
+Account creation, sign-in, and cloud backup, where offered, are handled by
+Supabase (supabase.com), a backend service. Supabase stores your account
+credentials and the transaction data described in section 5 on its
+infrastructure. Row-level security rules restrict each account to its own
+data. Supabase's own privacy practices govern data once it reaches their
+servers; see supabase.com/privacy for details. Peyo sends this service only
+the data described in section 5, nothing more, and only when you have
+chosen to use an account.
+
+No other third-party service, analytics platform, advertising network, or
+crash-reporting tool receives any data from this app.
+
+
+7. LOCAL FILE BACKUP
+
+Independent of any account, you can write a backup file containing your
+expenses, people, and categories to a location you choose on your device (or
+anywhere your device's file picker can reach, such as removable storage or a
+cloud-storage folder you have already set up on the phone), and import such
+a file back in. This feature works fully offline, requires no account, and
+Peyo does not transmit this file anywhere on your behalf; where it ends up
+is entirely up to the location you pick. Receipts and attachments are not
+included in this file.
+
+
+8. PERMISSIONS PEYO REQUESTS
+
+  - READ_CONTACTS: to offer names from your phone's contact list when you
+    choose to import people. Requested only when you use that feature; see
+    section 4.
+  - INTERNET and ACCESS_NETWORK_STATE: used only for the optional account
+    sign-in, backup, and restore described in section 5. Peyo works fully
+    offline without them being exercised.
+
+Peyo does not request access to your location, camera, microphone, SMS,
+call log, notifications, or storage beyond the receipt images you
+explicitly attach and the backup file you explicitly choose to write or
+read.
+
+
+9. DATA RETENTION AND DELETION
+
+  - Data on your device stays until you delete it in the app, clear the
+    app's storage, or uninstall it.
+  - Deleting an expense, person, or category in the app removes it from
+    your device and, if you have an account, marks it deleted so the
+    deletion also reaches the account's backup on your next sync.
+  - Uninstalling Peyo removes its local database and every attachment
+    stored on your device. If you have an account, that account and its
+    backed-up data remain in the backend until you delete the account, in
+    Settings or by contacting us, as described in section 5.
+
+
+10. CHILDREN'S PRIVACY
+
+Peyo is a general-purpose expense tracker and is not directed at children.
+It does not knowingly collect personal information from children.
+
+
+11. SECURITY
+
+Data on your device is stored in this app's private storage, which other
+apps cannot read without your device being compromised. Data sent to the
+optional backend travels over an encrypted connection and is restricted to
+your account by row-level security rules. No method of storage or
+transmission is perfectly secure, and this policy does not guarantee
+absolute security.
+
+
+12. CHANGES TO THIS POLICY
+
+If this policy changes, the "Last updated" date above will change with it.
+Continued use of the app after an update constitutes acceptance of the
+revised policy.
+
+
+13. CONTACT
+
+Questions about this policy or your data can be sent to
+[YOUR SUPPORT EMAIL ADDRESS].

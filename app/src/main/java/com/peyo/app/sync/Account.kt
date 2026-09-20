@@ -170,6 +170,33 @@ class Account(context: Context) {
         forget()
     }
 
+    /**
+     * Deletes the account and everything it owns on the backend, then forgets it locally.
+     *
+     * Calls the delete_own_account() function defined in supabase/schema.sql rather than any
+     * Auth endpoint: GoTrue only exposes user deletion through its admin API, gated behind the
+     * service_role key, and that key must never ship inside an app. The function runs as its own
+     * owner and only ever touches auth.uid() -- the caller's own row -- so a signed-in user's own
+     * token is enough to invoke it, and deleting that row cascades through every table that
+     * references it.
+     *
+     * Local data is untouched either way: the account only ever backed it up, and losing the
+     * connection partway through this leaves that backup exactly as current as it already was.
+     */
+    suspend fun deleteAccount(): Response<Unit> {
+        val token = freshToken() ?: return Response.Rejected(401, "Sign in again, then try deleting your account.")
+        val response = Supabase.request(
+            method = "POST",
+            path = "/rest/v1/rpc/delete_own_account",
+            body = "{}",
+            accessToken = token
+        )
+        // The account is gone on the server the moment that call succeeds, so the local session is
+        // forgotten regardless of what happens next -- there is nothing left for it to refer to.
+        if (response is Response.Ok) forget()
+        return response.map {}
+    }
+
     private fun credentials(email: String, password: String) = JSONObject()
         .put("email", email.trim())
         .put("password", password)

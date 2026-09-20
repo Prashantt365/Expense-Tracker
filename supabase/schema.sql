@@ -227,3 +227,32 @@ update public.expenses       e set user_email = p.email from public.profiles p w
 update public.people         e set user_email = p.email from public.profiles p where p.id = e.user_id and e.user_email is null;
 update public.categories     e set user_email = p.email from public.profiles p where p.id = e.user_id and e.user_email is null;
 update public.expense_splits e set user_email = p.email from public.profiles p where p.id = e.user_id and e.user_email is null;
+
+-- ---------------------------------------------------------------------------------------------
+-- Self-service account deletion.
+--
+-- There is no client-callable endpoint for a user to remove their own row from auth.users --
+-- that table belongs to Supabase Auth, and deleting from it is normally an admin operation gated
+-- behind the service_role key, which never belongs in an APK. This function is the narrow way
+-- around that: it runs as its owner (security definer) rather than as the caller, so it can reach
+-- auth.users, but the only row it will ever touch is auth.uid() -- the caller's own -- which is
+-- read from the request's own JWT and cannot be supplied or spoofed by the client.
+--
+-- Deleting the auth.users row cascades through every foreign key declared above (profiles,
+-- categories, people, expenses, expense_splits all reference it with on delete cascade), so one
+-- call removes the account and everything it owns from the backend. Nothing on the device is
+-- touched: attachments were never uploaded, and the local database is the user's to keep or clear
+-- from Settings regardless of what the account did.
+create or replace function public.delete_own_account() returns void
+  language plpgsql security definer set search_path = public, auth as $$
+begin
+  if auth.uid() is null then
+    raise exception 'Not signed in';
+  end if;
+  delete from auth.users where id = auth.uid();
+end $$;
+
+-- Only a signed-in user may call this, and only PostgREST's RPC route reaches it -- there is
+-- nothing here for the anon role, which is the role a stolen anon key would authenticate as.
+revoke all on function public.delete_own_account() from public, anon;
+grant execute on function public.delete_own_account() to authenticated;

@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Colorize
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
@@ -44,6 +45,7 @@ import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -79,6 +81,7 @@ import com.peyo.app.data.Category
 import com.peyo.app.data.LocalBackup
 import com.peyo.app.data.Person
 import com.peyo.app.sync.Account
+import com.peyo.app.sync.Response
 import com.peyo.app.sync.SyncOutcome
 import com.peyo.app.ui.theme.ThemeMode
 import com.peyo.app.ui.theme.ThemeSettings
@@ -123,6 +126,9 @@ fun SettingsScreen(
     var signingIn by remember { mutableStateOf(false) }
     var showingConflicts by remember { mutableStateOf(false) }
     var restoreConfirm by remember { mutableStateOf(false) }
+    var deleteAccountConfirm by remember { mutableStateOf(false) }
+    var deletingAccount by remember { mutableStateOf(false) }
+    var deleteAccountError by remember { mutableStateOf<String?>(null) }
     val conflicts by vm.conflicts.collectAsState()
     val syncing by vm.syncing.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
@@ -170,7 +176,8 @@ fun SettingsScreen(
                     account.signOut()
                     session = null
                 }
-            }
+            },
+            onDeleteAccount = { deleteAccountConfirm = true }
         )
 
         if (session != null) {
@@ -409,6 +416,67 @@ fun SettingsScreen(
             dismissButton = { TextButton({ restoreConfirm = false }) { Text("Cancel") } }
         )
     }
+    if (deleteAccountConfirm) {
+        AlertDialog(
+            onDismissRequest = { if (!deletingAccount) deleteAccountConfirm = false },
+            icon = { Icon(Icons.Default.DeleteForever, null, tint = MaterialTheme.colorScheme.error) },
+            title = { Text("Delete your account?") },
+            text = {
+                Text(
+                    "This removes " + (session?.email ?: "your account") + " and everything " +
+                        "backed up under it from the server -- permanently, for anyone else who " +
+                        "signs into it too. What is on this phone is not touched and is yours to " +
+                        "keep; you will just be signed out."
+                )
+            },
+            confirmButton = {
+                Button(
+                    {
+                        deletingAccount = true
+                        scope.launch {
+                            when (val result = account.deleteAccount()) {
+                                is Response.Ok -> {
+                                    session = null
+                                    deleteAccountConfirm = false
+                                    onNotice("Your account has been deleted.")
+                                }
+                                is Response.Rejected -> deleteAccountError = result.message
+                                is Response.Offline ->
+                                    deleteAccountError = "No connection. Try again when you are online."
+                            }
+                            deletingAccount = false
+                        }
+                    },
+                    enabled = !deletingAccount,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.error,
+                        contentColor = MaterialTheme.colorScheme.onError
+                    )
+                ) {
+                    if (deletingAccount) {
+                        CircularProgressIndicator(
+                            Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = MaterialTheme.colorScheme.onError
+                        )
+                    } else Text("Delete account")
+                }
+            },
+            dismissButton = {
+                TextButton({ deleteAccountConfirm = false }, enabled = !deletingAccount) { Text("Cancel") }
+            }
+        )
+    }
+    deleteAccountError?.let { message ->
+        AlertDialog(
+            onDismissRequest = { deleteAccountError = null },
+            icon = { Icon(Icons.Default.Warning, null) },
+            title = { Text("Couldn't delete your account") },
+            text = { Text(message) },
+            confirmButton = { Button({ deleteAccountError = null }) { Text("OK") } }
+        )
+    }
+
     if (showingConflicts && conflicts.isNotEmpty()) {
         ConflictDialog(
             conflicts = conflicts,
@@ -750,6 +818,7 @@ fun AccountCard(
     email: String?,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
+    onDeleteAccount: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     PeyoCard(modifier) {
@@ -794,6 +863,18 @@ fun AccountCard(
                 IconButton(onSignOut) {
                     Icon(Icons.AutoMirrored.Filled.Logout, "Sign out")
                 }
+            }
+        }
+        if (!email.isNullOrBlank()) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            TextButton(
+                onDeleteAccount,
+                Modifier.padding(horizontal = 4.dp),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+            ) {
+                Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp))
+                Gap(6.dp)
+                Text("Delete account")
             }
         }
     }
