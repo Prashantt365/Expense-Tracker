@@ -39,7 +39,10 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.PersonRemove
 import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Policy
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Widgets
@@ -73,10 +76,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.peyo.app.AppCurrency
+import com.peyo.app.BuildConfig
 import com.peyo.app.ExpenseViewModel
 import com.peyo.app.data.Category
 import com.peyo.app.data.LocalBackup
@@ -88,6 +93,13 @@ import com.peyo.app.ui.theme.ThemeMode
 import com.peyo.app.ui.theme.ThemeSettings
 import com.peyo.app.widget.PeyoWidgets
 import kotlinx.coroutines.launch
+
+/**
+ * The published policies, linked from About. They live outside the app so they can be corrected
+ * without a release, and so the Play listing and the app point at the same pages.
+ */
+private const val PRIVACY_POLICY_URL = "https://sites.google.com/view/peyo-privacy-policy/home"
+private const val ACCOUNT_DELETION_URL = "https://sites.google.com/view/peyoacountdeletion/home"
 
 /** A delete the app would not do, why, and the thing to do instead. */
 private data class Refusal(
@@ -382,6 +394,30 @@ fun SettingsScreen(
                 title = "Import from a statement",
                 subtitle = "Read a bank or UPI statement PDF and pick which rows to record. " +
                     "Pages are read on this device."
+            )
+        }
+
+        Section("About")
+        val links = LocalUriHandler.current
+        PeyoCard(onClick = { links.openUri(PRIVACY_POLICY_URL) }) {
+            SettingsRow(
+                icon = Icons.Default.Policy,
+                title = "Privacy policy",
+                subtitle = "What Peyo keeps, what leaves this phone, and why."
+            )
+        }
+        PeyoCard(onClick = { links.openUri(ACCOUNT_DELETION_URL) }) {
+            SettingsRow(
+                icon = Icons.Default.PersonRemove,
+                title = "Deleting your account",
+                subtitle = "How to delete it here or by email, and what goes with it."
+            )
+        }
+        PeyoCard {
+            SettingsRow(
+                icon = Icons.Default.Info,
+                title = "Peyo " + BuildConfig.VERSION_NAME,
+                subtitle = "Build " + BuildConfig.VERSION_CODE
             )
         }
 

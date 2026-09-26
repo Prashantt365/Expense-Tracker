@@ -253,6 +253,9 @@ unique index on the name.
 
 ## Privacy
 
+The published policies are the privacy policy at <https://sites.google.com/view/peyo-privacy-policy/home> and the
+account deletion page at <https://sites.google.com/view/peyoacountdeletion/home>. Both are also linked from Settings, under About.
+
 Attachments are copied into app-private storage. OCR runs on-device. The expense database, the
 attachments, the signed-in session and the sync position are all excluded from Android's automatic
 backup and device transfer. Contacts are read only when you ask to import names, and only names;
