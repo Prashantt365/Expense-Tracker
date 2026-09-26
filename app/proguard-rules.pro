@@ -16,3 +16,12 @@
 # Keep line numbers so release crash reports stay readable, without leaking source file names.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# WorkManager builds its input mergers and workers by reflection, from class names it stores.
+# Glance draws every widget inside a WorkManager job, so when R8 stripped the no-argument
+# constructor of OverwritingInputMerger the job failed before it started, and every widget sat on
+# its loading placeholder in release builds while debug builds worked.
+-keep class * extends androidx.work.InputMerger { <init>(); }
+-keep class * extends androidx.work.ListenableWorker {
+    <init>(android.content.Context, androidx.work.WorkerParameters);
+}
