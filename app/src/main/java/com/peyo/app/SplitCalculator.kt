@@ -67,11 +67,16 @@ object SplitCalculator {
         return finish(shares.toMutableList(), totalPaise, each * people.size)
     }
 
+    /**
+     * Rounding each share on its own can overshoot: 50% of 10.01 twice is 5.01 + 5.01. So the
+     * group's combined share is rounded once, everyone gets their share rounded down, and the paise
+     * that leaves over go one each to the shares that lost the most to rounding.
+     */
     private fun percent(totalPaise: Long, typed: Map<Long, String>): SplitResult {
-        val shares = mutableListOf<ComputedShare>()
         val hundred = BigDecimal(100)
+        val total = BigDecimal(totalPaise)
         var percentage = BigDecimal.ZERO
-        var assigned = 0L
+        val exact = mutableListOf<Pair<Long, BigDecimal>>()
         typed.forEach { (personId, text) ->
             if (text.isBlank()) return@forEach
             val pct = runCatching { BigDecimal(text.trim()) }.getOrNull()
@@ -79,14 +84,20 @@ object SplitCalculator {
             if (pct.signum() < 0) return SplitResult.Invalid("A percentage cannot be negative")
             percentage = percentage.add(pct)
             if (percentage > hundred) return SplitResult.Invalid("Percentages add up to more than 100%")
-            val paise = BigDecimal(totalPaise).multiply(pct)
-                .divide(hundred, 0, RoundingMode.HALF_UP)
-                .toLong()
-            assigned += paise
-            shares += ComputedShare(personId, paise)
+            // Dividing by 100 always terminates, so this is the exact share in fractional paise.
+            exact += personId to total.multiply(pct).divide(hundred)
         }
-        if (assigned > totalPaise) return SplitResult.Invalid("Percentages add up to more than the total")
-        return finish(shares, totalPaise, assigned)
+        val target = total.multiply(percentage).divide(hundred).setScale(0, RoundingMode.HALF_UP).toLong()
+        val floors = exact.map { (_, share) -> share.setScale(0, RoundingMode.FLOOR).toLong() }
+        val leftover = (target - floors.sum()).toInt()
+        val roundedUp = exact.indices
+            .sortedByDescending { exact[it].second.subtract(BigDecimal(floors[it])) }
+            .take(leftover)
+            .toSet()
+        val shares = exact.mapIndexed { index, (personId, _) ->
+            ComputedShare(personId, floors[index] + if (index in roundedUp) 1 else 0)
+        }
+        return finish(shares.toMutableList(), totalPaise, shares.sumOf { it.amountPaise })
     }
 
     private fun finish(shares: MutableList<ComputedShare>, totalPaise: Long, assigned: Long): SplitResult {
@@ -95,11 +106,24 @@ object SplitCalculator {
         return SplitResult.Valid(shares, myShare)
     }
 
-    /** Rupee text to paise, tolerating the extra precision OCR sometimes reports. */
+    /**
+     * Rupee text to paise, tolerating the extra precision OCR sometimes reports.
+     *
+     * A comma is usually grouping ("1,000", "1,00,000"), but a German, French or Indonesian keyboard
+     * types it as the decimal point, so a lone comma with one or two digits after it is read as one:
+     * "12,50" is 12.50, not 1250. "1.234,50" is that same convention with dots doing the grouping.
+     */
     fun parsePaise(amount: String): Long? = runCatching {
-        BigDecimal(amount.trim().replace(",", ""))
+        val text = amount.trim()
+        val plain = when {
+            decimalComma.matches(text) -> text.replace(".", "").replace(',', '.')
+            else -> text.replace(",", "")
+        }
+        BigDecimal(plain)
             .movePointRight(2)
             .setScale(0, RoundingMode.HALF_UP)
             .longValueExact()
     }.getOrNull()
+
+    private val decimalComma = Regex("^[-+]?(?:\\d*|\\d{1,3}(?:\\.\\d{3})+),\\d{1,2}$")
 }

@@ -183,13 +183,16 @@ enum class Merge {
     /** Nothing local has this identity. */
     INSERT,
 
-    /** Local is in step with the server and the server has moved on. */
+    /**
+     * Local is in step with the server and the server has moved on -- or local edits turn out to
+     * say exactly what the server already holds, so taking its copy loses nothing.
+     */
     UPDATE,
 
     /** Both sides changed since they last agreed. Only the user can say which is right. */
     CONFLICT,
 
-    /** Local is unchanged and no newer, or local holds edits the push will carry. */
+    /** Local already holds this very version, or local holds edits the push will carry. */
     SKIP,
 
     /**
@@ -205,14 +208,46 @@ enum class Merge {
  * Decides what a pulled row means, given whatever is held locally.
  *
  * The whole of the conflict rule is here, in one pure function, because it is the part that can
- * silently lose somebody's work. A row is only a conflict when both sides moved: local edits that
- * have not reached the server (syncedAt null) together with a server copy newer than the local
- * one. A local edit that is itself newer is not a conflict -- the push will carry it -- and a
- * local row already in step with the server simply takes the update.
+ * silently lose somebody's work.
+ *
+ * A local row in step with the server (syncedAt set) holds nothing the server lacks, so whatever
+ * the server now holds is the newer truth and is taken whenever its stamp differs; comparing the
+ * two for "newer" would be comparing the server's clock with whichever clock last stamped the local
+ * row, and a phone running fast used to ignore a real change from another device that way.
+ *
+ * A row with local edits the push has not carried yet is only a conflict when both sides moved:
+ * the server copy is newer than the local edit. [sameContent] comes first because two sides that
+ * hold the same thing have not disagreed about anything, whatever their stamps say -- a restore,
+ * or a push whose acknowledgement was lost, would otherwise put a meaningless choice in front of
+ * the user. [clockOffset] is how far the server's clock runs ahead of this device's, so that the
+ * device-stamped local edit is compared with the server stamp on the server's clock.
  */
-fun mergeDecision(local: Synced?, remoteUpdatedAt: Long): Merge = when {
+fun mergeDecision(
+    local: Synced?,
+    remoteUpdatedAt: Long,
+    sameContent: Boolean = false,
+    clockOffset: Long = 0L
+): Merge = when {
     local == null -> Merge.INSERT
-    local.syncedAt != null -> if (remoteUpdatedAt > local.updatedAt) Merge.UPDATE else Merge.SKIP
-    remoteUpdatedAt > local.updatedAt -> Merge.CONFLICT
+    local.syncedAt != null -> if (remoteUpdatedAt != local.updatedAt) Merge.UPDATE else Merge.SKIP
+    // Taken as an update: the row is written with the server's stamp and marked in step, so
+    // nothing is pushed for it and its own echo is not read as a change.
+    sameContent -> Merge.UPDATE
+    remoteUpdatedAt > local.updatedAt + clockOffset -> Merge.CONFLICT
     else -> Merge.SKIP
+}
+
+/**
+ * Whether two versions of one row say the same thing, ignoring the bookkeeping: the local row
+ * number, the stamps, and the screenshot a pulled expense never carries. Both sides must already
+ * be in local terms, a split's expense and person resolved to local row numbers.
+ */
+fun sameContent(a: Synced, b: Synced): Boolean = a.content() == b.content()
+
+private fun Synced.content(): Any = when (this) {
+    is Expense -> copy(id = 0, sourceUri = null, updatedAt = 0, syncedAt = null)
+    is Person -> copy(id = 0, updatedAt = 0, syncedAt = null)
+    is Category -> copy(id = 0, updatedAt = 0, syncedAt = null)
+    is ExpenseSplit -> copy(id = 0, updatedAt = 0, syncedAt = null)
+    else -> this
 }

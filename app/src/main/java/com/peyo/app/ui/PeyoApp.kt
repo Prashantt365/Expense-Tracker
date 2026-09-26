@@ -41,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -85,16 +86,18 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
     val balances by vm.balances.collectAsStateWithLifecycle()
     val importState by vm.importState.collectAsStateWithLifecycle()
 
-    var screen by remember { mutableStateOf(Screen.DASHBOARD) }
-    var editing by remember { mutableStateOf<ExpenseInput?>(null) }
-    var fromScreenshot by remember { mutableStateOf(false) }
-    var editorError by remember { mutableStateOf<String?>(null) }
-    var duplicateOf by remember { mutableStateOf<Expense?>(null) }
-    var period by remember { mutableStateOf(Period.MONTH) }
-    var settling by remember { mutableStateOf<PersonBalance?>(null) }
-    var contactCandidates by remember { mutableStateOf<List<ContactCandidate>?>(null) }
-    var contactSelection by remember { mutableStateOf(emptySet<String>()) }
-    var addingPerson by remember { mutableStateOf(false) }
+    // The tab and the period are saved with the activity; what is open on top of them lives in the
+    // ViewModel. Either way a rotation leaves the user where they were.
+    var screen by rememberSaveable { mutableStateOf(Screen.DASHBOARD) }
+    var period by rememberSaveable { mutableStateOf(Period.MONTH) }
+    var addingPerson by rememberSaveable { mutableStateOf(false) }
+    var editing by vm.editing
+    var fromScreenshot by vm.fromScreenshot
+    var editorError by vm.editorError
+    var duplicateOf by vm.duplicateOf
+    var settling by vm.settling
+    var contactCandidates by vm.contactCandidates
+    var contactSelection by vm.contactSelection
 
     // Notices are a snackbar rather than a modal now. Every one of them reports something that has
     // already happened successfully, and an alert the user has to dismiss to carry on is the wrong
@@ -263,7 +266,7 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                             paidAt = details.expense.paidAt,
                             sourceUri = details.expense.sourceUri,
                             shares = details.splits
-                                .filter { it.personId != null }
+                                .filter { it.personId != null && it.deletedAt == null }
                                 .associate { it.personId!! to (it.amountPaise / 100.0).toString() },
                             existingAttachments = details.attachments
                         )
@@ -303,6 +306,8 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
     editing?.let { input ->
         ExpenseEditor(
             input = input,
+            initialDraft = vm.typedDraft?.takeIf { it.first == input }?.second ?: input,
+            onDraftChange = { vm.typedDraft = input to it },
             categories = categories,
             people = people,
             fromScreenshot = fromScreenshot,

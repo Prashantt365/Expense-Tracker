@@ -14,9 +14,11 @@ import kotlinx.coroutines.flow.Flow
  * next push from a phone that still has it would put it back. Every read therefore has to exclude
  * the marked rows, which is what the deletedAt clauses below are doing.
  *
- * Splits are the exception. One belongs entirely to its expense and the editor already replaces
- * the whole set on every save, so a split is removed outright and the set is pushed as a set. That
- * keeps the wholesale-replace the editor already does from turning into a stream of tombstones.
+ * Splits follow the same rule. Saving an expense reconciles its shares against the stored ones
+ * rather than replacing the set: a share that survives the edit keeps its row, its remoteId and
+ * whether it was settled, and one the edit removes becomes a tombstone. Dropping them outright
+ * used to leave the old shares on the server, where a restore or a second phone added them to the
+ * new ones and counted every balance twice.
  */
 @Dao
 interface ExpenseDao {
@@ -61,24 +63,27 @@ interface ExpenseDao {
     @Insert
     suspend fun insertSplits(splits: List<ExpenseSplit>)
 
-    @Query("DELETE FROM expense_splits WHERE expenseId = :expenseId")
-    suspend fun clearSplits(expenseId: Long)
+    @Query("SELECT * FROM expense_splits WHERE expenseId = :expenseId AND deletedAt IS NULL")
+    suspend fun liveSplitsFor(expenseId: Long): List<ExpenseSplit>
+
+    @Update
+    suspend fun updateSplits(splits: List<ExpenseSplit>)
 
     @Query(
         "UPDATE expense_splits SET settledAt = :now, updatedAt = :now, syncedAt = NULL " +
-            "WHERE id = :splitId AND settledAt IS NULL"
+            "WHERE id = :splitId AND settledAt IS NULL AND deletedAt IS NULL"
     )
     suspend fun settleShare(splitId: Long, now: Long)
 
     @Query(
         "UPDATE expense_splits SET settledAt = :now, updatedAt = :now, syncedAt = NULL " +
-            "WHERE personId = :personId AND settledAt IS NULL"
+            "WHERE personId = :personId AND settledAt IS NULL AND deletedAt IS NULL"
     )
     suspend fun settleEverything(personId: Long, now: Long)
 
     @Query(
         "UPDATE expense_splits SET settledAt = NULL, updatedAt = :now, syncedAt = NULL " +
-            "WHERE personId = :personId AND settledAt IS NOT NULL"
+            "WHERE personId = :personId AND settledAt IS NOT NULL AND deletedAt IS NULL"
     )
     suspend fun reopenEverything(personId: Long, now: Long)
 
@@ -102,6 +107,7 @@ interface ExpenseDao {
         FROM people p
         LEFT JOIN expense_splits s
                ON s.personId = p.id
+              AND s.deletedAt IS NULL
               AND EXISTS (SELECT 1 FROM expenses e WHERE e.id = s.expenseId AND e.deletedAt IS NULL)
         WHERE p.deletedAt IS NULL
         GROUP BY p.id, p.name
@@ -139,6 +145,7 @@ interface ExpenseDao {
         FROM people p
         LEFT JOIN expense_splits s
                ON s.personId = p.id
+              AND s.deletedAt IS NULL
               AND EXISTS (SELECT 1 FROM expenses e WHERE e.id = s.expenseId AND e.deletedAt IS NULL)
         WHERE p.deletedAt IS NULL
         GROUP BY p.id, p.name
@@ -153,7 +160,7 @@ interface ExpenseDao {
                e.merchant AS merchant, e.category AS category, e.paidAt AS paidAt
         FROM expense_splits s
         JOIN expenses e ON e.id = s.expenseId
-        WHERE s.personId = :personId AND s.settledAt IS NULL AND e.deletedAt IS NULL
+        WHERE s.personId = :personId AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
         ORDER BY e.paidAt DESC
         """
     )
@@ -187,6 +194,9 @@ interface CategoryDao {
     /** A name freed by a tombstone has to be reclaimable, since the index does not know about it. */
     @Query("SELECT * FROM categories WHERE name = :name AND deletedAt IS NOT NULL LIMIT 1")
     suspend fun deletedByName(name: String): Category?
+
+    @Query("SELECT * FROM categories WHERE name = :name AND deletedAt IS NULL LIMIT 1")
+    suspend fun activeByName(name: String): Category?
 }
 
 @Dao
@@ -207,7 +217,7 @@ interface PersonDao {
         """
         SELECT COUNT(*) FROM expense_splits s
         JOIN expenses e ON e.id = s.expenseId
-        WHERE s.personId = :id AND s.settledAt IS NULL AND e.deletedAt IS NULL
+        WHERE s.personId = :id AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
         """
     )
     suspend fun outstandingCount(id: Long): Int

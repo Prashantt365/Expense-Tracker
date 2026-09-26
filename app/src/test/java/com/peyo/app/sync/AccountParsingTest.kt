@@ -110,6 +110,17 @@ class AccountParsingTest {
         assertEquals("The server refused the request (409)", reasonIn(body, 409))
     }
 
+    /**
+     * Only a refresh token that is really dead may sign the user out. A struggling server used to
+     * do it too, silently, leaving Settings showing an account that could no longer sync.
+     */
+    @Test fun `only a dead refresh token ends the session`() {
+        listOf(400, 401, 403).forEach { assertTrue("$it should sign out", refreshIsFinal(it)) }
+        listOf(408, 429, 500, 502, 503, 504, 200).forEach {
+            assertFalse("$it should not sign out", refreshIsFinal(it))
+        }
+    }
+
     @Test fun `an unreadable body still says something`() {
         assertEquals("The server refused the request (502)", reasonIn("<html>bad gateway</html>", 502))
         assertEquals("The server refused the request (500)", reasonIn("", 500))

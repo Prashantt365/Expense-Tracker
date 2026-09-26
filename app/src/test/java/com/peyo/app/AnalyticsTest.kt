@@ -221,4 +221,50 @@ class AnalyticsTest {
         )
         assertEquals("Removed person", report(rows).people.single().name)
     }
+
+    @Test fun `splits deleted by an edit are ignored everywhere`() {
+        val gone = millis(today)
+        val rows = listOf(
+            details(
+                1, 60000,
+                splits = listOf(
+                    // The split as first saved, since replaced.
+                    ExpenseSplit(expenseId = 1, personId = 1, amountPaise = 30000, deletedAt = gone),
+                    ExpenseSplit(expenseId = 1, personId = null, amountPaise = 30000, deletedAt = gone),
+                    ExpenseSplit(expenseId = 1, personId = 1, amountPaise = 20000),
+                    ExpenseSplit(expenseId = 1, personId = null, amountPaise = 40000)
+                )
+            ),
+            // Every split removed by the edit, so the whole bill is mine again.
+            details(2, 10000, splits = listOf(ExpenseSplit(expenseId = 2, personId = 2, amountPaise = 5000, deletedAt = gone)))
+        )
+        val result = report(rows)
+        assertEquals(50000, result.minePaise)
+        assertEquals(20000, result.onOthersPaise)
+        assertEquals(20000, result.outstandingPaise)
+        val person = result.people.single()
+        assertEquals(1L, person.personId)
+        assertEquals(20000, person.sharedPaise)
+        assertEquals(1, person.expenseCount)
+    }
+
+    @Test fun `month over month compares the same days of each month`() {
+        // On the 15th, spending on the 20th of last month has no counterpart yet.
+        val rows = listOf(
+            details(1, 15000, date = today),
+            details(2, 10000, date = today.minusMonths(1)),
+            details(3, 90000, date = today.minusMonths(1).plusDays(5))
+        )
+        assertEquals(0.5f, report(rows).monthOverMonth!!, 0.001f)
+    }
+
+    @Test fun `on the last day of the month the whole previous month counts`() {
+        val lastDay = LocalDate.of(2026, 9, 30)
+        val rows = listOf(
+            details(1, 20000, date = lastDay),
+            details(2, 10000, date = LocalDate.of(2026, 8, 31))
+        )
+        val result = Analytics.build(rows, listOf(rahul, priya), Period.MONTH, zone, lastDay)
+        assertEquals(1f, result.monthOverMonth!!, 0.001f)
+    }
 }

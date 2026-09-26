@@ -40,9 +40,14 @@ object StatementParser {
         RegexOption.IGNORE_CASE
     )
 
-    /** A currency marker makes even a bare integer safe to read as money: "₹80", "Rs. 1,250.50". */
+    /**
+     * A currency marker makes even a bare integer safe to read as money: "₹80", "Rs. 1,250.50".
+     *
+     * "Rs" and "INR" must start a word, or the tail of "Cars24" would read as ₹24. The Cr/Dr
+     * suffix must end one, or the "CR" of a payee such as "CROMA" would turn a purchase into a credit.
+     */
     private val taggedAmount = Regex(
-        "(?:₹|rs\\.?|inr)\\s*(\\d[\\d,]*(?:\\.\\d{1,2})?)(\\s*(?:cr|dr))?",
+        "(?:₹|\\b(?:rs\\.?|inr))\\s*(\\d[\\d,]*(?:\\.\\d{1,2})?)(\\s*(?:cr|dr)\\b)?",
         RegexOption.IGNORE_CASE
     )
 
@@ -50,9 +55,12 @@ object StatementParser {
      * Without a currency marker, money has to be told apart from reference numbers, so a grouping
      * comma or two decimal places is required. That keeps "UPI Transaction ID: 127297424577" and
      * an account tail such as "6254" out of the amount column.
+     *
+     * A figure touching another dot-separated number is part of something else: "05.09" is the
+     * front of the date "05.09.2026", not ₹5.09.
      */
     private val plainAmount = Regex(
-        "(\\d{1,3}(?:,\\d{2,3})+(?:\\.\\d{1,2})?|\\d+\\.\\d{2})(\\s*(?:cr|dr))?",
+        "(?<![\\d.])(\\d{1,3}(?:,\\d{2,3})+(?:\\.\\d{1,2})?|\\d+\\.\\d{2})(?!\\.?\\d)(\\s*(?:cr|dr)\\b)?",
         RegexOption.IGNORE_CASE
     )
 
@@ -166,9 +174,11 @@ object StatementParser {
 
     private fun finish(record: Record, zone: ZoneId, today: LocalDate): StatementRow? {
         val joined = record.lines.joinToString(" ")
+        // The date that opened the record is never money, whatever shape its digits take.
+        val money = record.dateText?.let { joined.replaceFirst(it, " ") } ?: joined
 
-        val tagged = taggedAmount.findAll(joined).toList()
-        val figures = tagged.ifEmpty { plainAmount.findAll(joined).toList() }
+        val tagged = taggedAmount.findAll(money).toList()
+        val figures = tagged.ifEmpty { plainAmount.findAll(money).toList() }
         if (figures.isEmpty()) return null
 
         // A bank row prints the running balance last, so with more than one figure the trailing
@@ -234,7 +244,12 @@ object StatementParser {
     }.getOrNull()
 
     private fun toEpochMillis(raw: String, joined: String, zone: ZoneId, today: LocalDate): Long? {
-        val cleaned = raw.trim().replace(",", " ").replace(Regex("\\s{2,}"), " ")
+        // "Sept" is a common abbreviation that MMM does not accept, and a month may carry a
+        // full stop ("5 Sep. 2026") that no pattern expects.
+        val cleaned = raw.trim().replace(",", " ")
+            .replace(Regex("\\bsept\\b", RegexOption.IGNORE_CASE), "Sep")
+            .replace(Regex("(?<=[A-Za-z])\\."), "")
+            .replace(Regex("\\s{2,}"), " ")
         val date = dateFormats.firstNotNullOfOrNull { formatter ->
             runCatching { LocalDate.parse(cleaned, formatter) }.getOrNull()
                 ?: runCatching { LocalDate.parse(cleaned.replace('.', '/'), formatter) }.getOrNull()

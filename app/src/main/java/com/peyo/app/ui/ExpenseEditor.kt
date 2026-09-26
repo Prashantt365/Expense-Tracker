@@ -98,10 +98,14 @@ fun ExpenseEditor(
     onAddCategoryInline: suspend (String) -> Unit,
     onAddPersonInline: suspend (String) -> Long,
     onDismiss: () -> Unit,
-    onSave: (ExpenseInput, force: Boolean) -> Unit
+    onSave: (ExpenseInput, force: Boolean) -> Unit,
+    /** Where to start when the editor is reopened after a rotation with typing already in it. */
+    initialDraft: ExpenseInput = input,
+    onDraftChange: (ExpenseInput) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
-    var draft by remember(input) { mutableStateOf(input) }
+    var draft by remember(input) { mutableStateOf(initialDraft) }
+    LaunchedEffect(draft) { onDraftChange(draft) }
     var showPersonMenu by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<AttachmentPreview?>(null) }
     var pickingDate by remember { mutableStateOf(false) }
@@ -111,7 +115,7 @@ fun ExpenseEditor(
     // so the initial pick is the hard-coded fallback and can even be a name that is not on the
     // list. Once they arrive, a draft the user has not touched follows the real first category;
     // one they have chosen from is left alone.
-    var categoryChosen by remember(input) { mutableStateOf(input.id != 0L) }
+    var categoryChosen by remember(input) { mutableStateOf(input.id != 0L || initialDraft != input) }
     LaunchedEffect(categories) {
         if (categories.isEmpty()) return@LaunchedEffect
         if (!categoryChosen || categories.none { it.name == draft.category }) {

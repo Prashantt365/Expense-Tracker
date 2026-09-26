@@ -1,6 +1,8 @@
 package com.peyo.app
 
+import com.peyo.app.ui.amountToMinorUnits
 import com.peyo.app.ui.money
+import com.peyo.app.ui.moneyCompact
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -48,5 +50,17 @@ class MoneyFormatTest {
         assertTrue("expected a substantial currency list, got ${all.size}", all.size > 100)
         assertTrue(all.any { it.first == AppCurrency.FALLBACK })
         assertTrue("codes should not double as names", all.none { it.first == it.second })
+    }
+
+    @Test fun `compact amounts roll over into the next unit rather than reading 10000K`() {
+        AppCurrency.code = "INR"
+        // The symbol varies with the machine's locale, so only the figure after it is checked.
+        assertTrue(moneyCompact(9_999_950_00).endsWith("10M"))
+        assertTrue(moneyCompact(9_999_940_00).endsWith("9999.9K"))
+    }
+
+    @Test fun `typed amounts accept a comma as the decimal point`() {
+        assertEquals(1250L, amountToMinorUnits("12,50"))
+        assertEquals(100000L, amountToMinorUnits("1,000"))
     }
 }

@@ -21,17 +21,34 @@ data class IdPair(val id: Long, val remoteId: String)
 interface SyncDao {
 
     // Rows with local changes the server has not taken yet.
+    //
+    // A row with an open conflict is held back until the user has chosen. Pushing it would
+    // overwrite the server's copy -- the very version the conflict screen is offering to keep --
+    // while that screen says nothing changes until a choice is made. The entity names are
+    // SyncedTable.local, spelled out because a query has to be a constant.
 
-    @Query("SELECT * FROM expenses WHERE syncedAt IS NULL")
+    @Query(
+        "SELECT * FROM expenses WHERE syncedAt IS NULL " +
+            "AND remoteId NOT IN (SELECT remoteId FROM sync_conflicts WHERE entity = 'expense')"
+    )
     suspend fun expensesToPush(): List<Expense>
 
-    @Query("SELECT * FROM people WHERE syncedAt IS NULL")
+    @Query(
+        "SELECT * FROM people WHERE syncedAt IS NULL " +
+            "AND remoteId NOT IN (SELECT remoteId FROM sync_conflicts WHERE entity = 'person')"
+    )
     suspend fun peopleToPush(): List<Person>
 
-    @Query("SELECT * FROM categories WHERE syncedAt IS NULL")
+    @Query(
+        "SELECT * FROM categories WHERE syncedAt IS NULL " +
+            "AND remoteId NOT IN (SELECT remoteId FROM sync_conflicts WHERE entity = 'category')"
+    )
     suspend fun categoriesToPush(): List<Category>
 
-    @Query("SELECT * FROM expense_splits WHERE syncedAt IS NULL")
+    @Query(
+        "SELECT * FROM expense_splits WHERE syncedAt IS NULL " +
+            "AND remoteId NOT IN (SELECT remoteId FROM sync_conflicts WHERE entity = 'split')"
+    )
     suspend fun splitsToPush(): List<ExpenseSplit>
 
     @Query("SELECT COUNT(*) FROM expenses WHERE syncedAt IS NULL")
@@ -42,13 +59,19 @@ interface SyncDao {
      *
      * This is what automatic backup watches. Counting only the expenses would leave a renamed
      * person or a new category sitting unsent until something else happened to trigger a run.
+     * Rows held back by a conflict are not counted: they are waiting on the user, not on a sync,
+     * and counting them would schedule runs that cannot send them.
      */
     @Query(
         """
-        SELECT (SELECT COUNT(*) FROM expenses       WHERE syncedAt IS NULL)
-             + (SELECT COUNT(*) FROM people         WHERE syncedAt IS NULL)
-             + (SELECT COUNT(*) FROM categories     WHERE syncedAt IS NULL)
-             + (SELECT COUNT(*) FROM expense_splits WHERE syncedAt IS NULL)
+        SELECT (SELECT COUNT(*) FROM expenses       WHERE syncedAt IS NULL AND remoteId NOT IN
+                  (SELECT remoteId FROM sync_conflicts WHERE entity = 'expense'))
+             + (SELECT COUNT(*) FROM people         WHERE syncedAt IS NULL AND remoteId NOT IN
+                  (SELECT remoteId FROM sync_conflicts WHERE entity = 'person'))
+             + (SELECT COUNT(*) FROM categories     WHERE syncedAt IS NULL AND remoteId NOT IN
+                  (SELECT remoteId FROM sync_conflicts WHERE entity = 'category'))
+             + (SELECT COUNT(*) FROM expense_splits WHERE syncedAt IS NULL AND remoteId NOT IN
+                  (SELECT remoteId FROM sync_conflicts WHERE entity = 'split'))
         """
     )
     fun observePendingCount(): Flow<Int>
@@ -112,7 +135,9 @@ interface SyncDao {
     @Update suspend fun updateCategory(category: Category)
     @Update suspend fun updateSplit(split: ExpenseSplit)
 
-    // Marking a pushed row as settled with the server.
+    // Marking a pushed row as settled with the server, in bulk. The engine no longer uses these: it
+    // settles each row through the update methods above, so it can check the row is still the
+    // version it sent and give it the server's stamp.
 
     @Query("UPDATE expenses SET syncedAt = :at WHERE id IN (:ids)")
     suspend fun markExpensesSynced(ids: List<Long>, at: Long)

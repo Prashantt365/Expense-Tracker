@@ -2,6 +2,8 @@ package com.peyo.app
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.peyo.app.data.Attachment
@@ -13,20 +15,25 @@ import com.peyo.app.data.ExpenseSplit
 import com.peyo.app.data.LocalBackup
 import com.peyo.app.data.PdfTextReader
 import com.peyo.app.data.Person
+import com.peyo.app.data.PersonBalance
 import com.peyo.app.sync.BackupSettings
 import com.peyo.app.sync.SyncEngine
 import com.peyo.app.sync.SyncOutcome
 import com.peyo.app.widget.PeyoWidgets
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 
 /** Everything the editor collects, in the raw text form the fields hold it. */
 data class ExpenseInput(
@@ -78,6 +85,28 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
     private val syncEngine = SyncEngine(application, repository.syncDao)
 
+    // --- What the top level has open --------------------------------------------------------
+    //
+    // Held here rather than in remember, because remember does not survive the activity being
+    // recreated: rotating the phone used to close an editor half filled in, or the settle-up and
+    // contact dialogs, without a word. The ViewModel outlives the rotation, so state kept in it
+    // is simply still there. It is Compose state so the screens read it exactly as before.
+
+    val editing = mutableStateOf<ExpenseInput?>(null)
+    val fromScreenshot = mutableStateOf(false)
+    val editorError = mutableStateOf<String?>(null)
+    val duplicateOf = mutableStateOf<Expense?>(null)
+    val settling = mutableStateOf<PersonBalance?>(null)
+    val contactCandidates = mutableStateOf<List<ContactCandidate>?>(null)
+    val contactSelection = mutableStateOf(emptySet<String>())
+
+    /**
+     * What has been typed into the open editor, paired with the [editing] value it started from.
+     * The editor keeps its own draft, so without this a rotation reopened it on the values it was
+     * opened with; the pairing is what stops a stale draft being applied to a different expense.
+     */
+    var typedDraft: Pair<ExpenseInput, ExpenseInput>? = null
+
     val conflicts = repository.conflicts
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
@@ -120,6 +149,11 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         // cannot be left stale by a future write path that forgets to say so.
         viewModelScope.launch {
             repository.expenses.collect { PeyoWidgets.refresh(getApplication()) }
+        }
+        // The currency is the one thing the widget shows that is not in that list, so a change of
+        // currency asks for a redraw of its own rather than waiting for the next expense.
+        viewModelScope.launch {
+            snapshotFlow { AppCurrency.code }.drop(1).collect { PeyoWidgets.refresh(getApplication()) }
         }
     }
 
@@ -175,8 +209,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    /** Under the same lock as a sync, so a choice cannot land in the middle of a run's writes. */
     fun resolveConflict(conflictId: Long, keepLocal: Boolean) = viewModelScope.launch {
-        syncEngine.resolve(conflictId, keepLocal)
+        syncLock.withLock { syncEngine.resolve(conflictId, keepLocal) }
     }
 
     // --- Backup to a file on this phone -----------------------------------------------------
@@ -201,12 +236,15 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
      * Failures are reported rather than thrown: the picker can hand back a Uri whose grant has
      * already lapsed, or a location that has since gone away, and neither is worth a crash on
      * what is meant to be the safe option.
+     *
+     * The work is off the main thread. The whole history is serialised in one go, and on a long
+     * one that is long enough for Android to call the app unresponsive.
      */
     fun backupToFile(uri: Uri) = viewModelScope.launch {
-        _fileOutcome.value = runCatching {
+        _fileOutcome.value = reported("The backup could not be written.") {
             val stream = files.writeTo(uri) ?: error("That location could not be written to.")
-            FileOutcome.Exported(LocalBackup.export(repository.syncDao, stream))
-        }.getOrElse { FileOutcome.Failed(it.message ?: "The backup could not be written.") }
+            FileOutcome.Exported(stream.use { LocalBackup.export(repository.syncDao, it) })
+        }
     }
 
     /**
@@ -214,11 +252,27 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
      * signed in picks it up on the next run and the file reaches the server too.
      */
     fun importBackupFile(uri: Uri) = viewModelScope.launch {
-        _fileOutcome.value = runCatching {
+        _fileOutcome.value = reported("That file could not be imported.") {
             val stream = files.readFrom(uri) ?: error("That file could not be opened.")
-            FileOutcome.Imported(LocalBackup.merge(repository.syncDao, stream))
-        }.getOrElse { FileOutcome.Failed(it.message ?: "That file could not be imported.") }
+            // One transaction, so a file that fails partway -- a row that clashes with a name
+            // already taken here, say -- is refused whole rather than left half applied.
+            FileOutcome.Imported(repository.transaction { LocalBackup.merge(repository.syncDao, stream) })
+        }
     }
+
+    /**
+     * Runs [block] on the IO dispatcher and turns a failure into [FileOutcome.Failed]. A
+     * cancellation is passed on rather than reported, since it is the scope ending and not the
+     * file going wrong.
+     */
+    private suspend fun reported(fallback: String, block: suspend () -> FileOutcome): FileOutcome =
+        try {
+            withContext(Dispatchers.IO) { block() }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            FileOutcome.Failed(e.message ?: fallback)
+        }
 
     fun outstandingFor(personId: Long) = repository.outstandingFor(personId)
 
@@ -259,8 +313,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
     fun addCategory(name: String) = viewModelScope.launch { if (name.isNotBlank()) repository.addCategory(name) }
     suspend fun addCategoryInline(name: String) { if (name.isNotBlank()) repository.addCategory(name) }
-    fun renameCategory(category: com.peyo.app.data.Category, newName: String) =
-        viewModelScope.launch { repository.renameCategory(category, newName) }
+    /** [onTaken] is called, and nothing is renamed, when another category already has the name. */
+    fun renameCategory(category: com.peyo.app.data.Category, newName: String, onTaken: () -> Unit) =
+        viewModelScope.launch { if (!repository.renameCategory(category, newName)) onTaken() }
 
     fun deleteCategory(category: com.peyo.app.data.Category, onBlocked: (Int) -> Unit) =
         viewModelScope.launch {
@@ -271,7 +326,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
     fun addPerson(name: String) = viewModelScope.launch { if (name.isNotBlank()) repository.addPerson(name) }
     suspend fun addPersonInline(name: String): Long = repository.addPerson(name)
-    fun renamePerson(person: Person, newName: String) = viewModelScope.launch { repository.renamePerson(person, newName) }
+    /** [onTaken] is called, and nothing is renamed, when somebody else already has the name. */
+    fun renamePerson(person: Person, newName: String, onTaken: () -> Unit) =
+        viewModelScope.launch { if (!repository.renamePerson(person, newName)) onTaken() }
 
     fun deletePerson(person: Person, onBlocked: (Int) -> Unit) = viewModelScope.launch {
         val owing = repository.personOutstandingCount(person.id)
@@ -299,7 +356,14 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 ImportState.Failed("No transactions were recognised in that PDF.")
             } else {
                 // Credits are money in, so they start unticked; the user can still take them.
-                ImportState.Review(rows, rows.indices.filterNot { rows[it].isCredit }.toSet())
+                // The category starts on the first one the picker actually offers: a hard-coded
+                // "Other" may have been renamed or deleted, and rows filed under it would then sit
+                // under a category no chip can select.
+                ImportState.Review(
+                    rows,
+                    rows.indices.filterNot { rows[it].isCredit }.toSet(),
+                    category = categories.value.firstOrNull()?.name ?: "Other"
+                )
             }
         }
     }

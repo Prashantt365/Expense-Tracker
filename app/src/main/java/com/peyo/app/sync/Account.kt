@@ -1,6 +1,8 @@
 package com.peyo.app.sync
 
 import android.content.Context
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 
 /**
@@ -29,6 +31,16 @@ internal fun sessionFrom(json: JSONObject, now: Long = System.currentTimeMillis(
 }
 
 private const val DEFAULT_TOKEN_LIFE_SECONDS = 3600L
+
+/**
+ * Whether a refused refresh means the session is over, rather than that the server is struggling.
+ *
+ * GoTrue answers a revoked, reused or expired refresh token with a 400 (invalid_grant,
+ * refresh_token_not_found and the like), and 401 or 403 mean much the same. Anything else -- a 5xx,
+ * a 429, a timeout at a proxy -- says nothing about the token, and signing the user out over it
+ * would throw away a perfectly good session because of a bad minute.
+ */
+internal fun refreshIsFinal(status: Int): Boolean = status == 400 || status == 401 || status == 403
 
 /** A signed-in user, as much of one as the app needs to know about. */
 data class Session(
@@ -136,8 +148,8 @@ class Account(context: Context) {
     }
 
     /**
-     * Swaps a refresh token for a live one. A refusal here is final -- the token has been revoked
-     * or has aged out -- so the caller signs the user out rather than retrying.
+     * Swaps a refresh token for a live one. Only some refusals are final -- see
+     * [refreshIsFinal] -- and it is the caller that decides what to do with one.
      */
     suspend fun refresh(session: Session): Response<Session> {
         val body = JSONObject().put("refresh_token", session.refreshToken).toString()
@@ -145,23 +157,36 @@ class Account(context: Context) {
     }
 
     /**
-     * A token good for the next request, refreshing first if the one held has run out. Null means
-     * the user has to sign in again; [Response.Offline] deliberately does not produce one, so a
-     * lost connection never signs anybody out.
+     * A token good for the next request, refreshing first if the one held has run out -- or
+     * regardless, when [force] says the server has just turned the held one down.
+     *
+     * Null means nobody is signed in, either because nobody was or because the refresh token has
+     * been revoked or has aged out. [Response.Offline] and a server that is only struggling (a 5xx,
+     * a 429) come back as themselves and leave the session exactly where it was: a flaky
+     * connection or a bad minute at Supabase must never sign anybody out, and used to, silently,
+     * while Settings went on showing them signed in.
      */
-    suspend fun freshToken(): String? {
+    suspend fun freshToken(force: Boolean = false): Response<String>? {
         val held = stored() ?: return null
-        if (held.isFresh()) return held.accessToken
-        return when (val refreshed = refresh(held)) {
-            is Response.Ok -> {
-                remember(refreshed.body)
-                refreshed.body.accessToken
+        if (!force && held.isFresh()) return Response.Ok(held.accessToken)
+        return refreshLock.withLock {
+            // Somebody else may have refreshed while this waited, and a refresh token is spent by
+            // use, so sending the old one again would at best waste a round trip.
+            val current = stored() ?: return@withLock null
+            if (current.accessToken != held.accessToken && current.isFresh()) {
+                return@withLock Response.Ok(current.accessToken)
             }
-            is Response.Rejected -> {
-                forget()
-                null
+            when (val refreshed = refresh(current)) {
+                is Response.Ok -> Response.Ok(refreshed.body.accessToken)
+                is Response.Offline -> refreshed
+                is Response.Rejected ->
+                    if (refreshIsFinal(refreshed.status)) {
+                        forget()
+                        null
+                    } else {
+                        refreshed
+                    }
             }
-            is Response.Offline -> null
         }
     }
 
@@ -184,18 +209,33 @@ class Account(context: Context) {
      * connection partway through this leaves that backup exactly as current as it already was.
      */
     suspend fun deleteAccount(): Response<Unit> {
-        val token = freshToken() ?: return Response.Rejected(401, "Sign in again, then try deleting your account.")
-        val response = Supabase.request(
-            method = "POST",
-            path = "/rest/v1/rpc/delete_own_account",
-            body = "{}",
-            accessToken = token
-        )
+        // Only a session that is really gone is worth asking the user to sign in again for. Being
+        // offline, or the server having a bad minute, is said as what it is.
+        val token = when (val fresh = freshToken()) {
+            null -> return Response.Rejected(401, "Sign in again, then try deleting your account.")
+            is Response.Offline -> return fresh
+            is Response.Rejected -> return fresh
+            is Response.Ok -> fresh.body
+        }
+        var response = deleteOwnAccount(token)
+        // The stored expiry is only as good as the device clock, so a token it called live can
+        // still be turned down. One forced refresh and one retry is the recovery for that.
+        if (response is Response.Rejected && response.status == 401) {
+            val retried = freshToken(force = true)
+            if (retried is Response.Ok) response = deleteOwnAccount(retried.body)
+        }
         // The account is gone on the server the moment that call succeeds, so the local session is
         // forgotten regardless of what happens next -- there is nothing left for it to refer to.
         if (response is Response.Ok) forget()
         return response.map {}
     }
+
+    private suspend fun deleteOwnAccount(token: String) = Supabase.request(
+        method = "POST",
+        path = "/rest/v1/rpc/delete_own_account",
+        body = "{}",
+        accessToken = token
+    )
 
     private fun credentials(email: String, password: String) = JSONObject()
         .put("email", email.trim())
@@ -216,6 +256,12 @@ class Account(context: Context) {
     }
 
     private companion object {
+        /**
+         * Shared by every Account, since several are made (one per screen and one for syncing)
+         * and they all read and write the same stored session.
+         */
+        val refreshLock = Mutex()
+
         const val KEY_USER_ID = "userId"
         const val KEY_EMAIL = "email"
         const val KEY_ACCESS = "accessToken"

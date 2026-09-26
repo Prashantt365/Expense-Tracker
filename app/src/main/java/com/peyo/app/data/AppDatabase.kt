@@ -139,6 +139,13 @@ abstract class AppDatabase : RoomDatabase() {
                             "VALUES (?, ?, ($UUID_EXPRESSION), ?)",
                         arrayOf<Any>(name, index, now)
                     )
+                    // A default the user deleted still holds its name in the unique index, so the
+                    // insert above skips it; bringing the defaults back means reviving those rows.
+                    db.execSQL(
+                        "UPDATE categories SET deletedAt = NULL, updatedAt = ?, syncedAt = NULL " +
+                            "WHERE name = ? AND deletedAt IS NOT NULL",
+                        arrayOf<Any>(now, name)
+                    )
                 }
             }
         }

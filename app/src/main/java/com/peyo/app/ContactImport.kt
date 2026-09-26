@@ -24,6 +24,10 @@ object ContactImportPlanner {
         return contactNames
             .map { it.trim() }
             .filter { NameMatcher.normalize(it).isNotEmpty() }
+            // The same name spelled identically twice -- a Google and a SIM copy of one contact --
+            // is one choice, not two. The picker keys and ticks rows by name, so two identical
+            // rows crashed it outright, and ticking one would have ticked both anyway.
+            .distinct()
             .map { name ->
                 val existing = existingPeople.firstOrNull { NameMatcher.isLikelySame(it, name) }
                 val earlier = accepted.any { NameMatcher.isLikelySame(it, name) }

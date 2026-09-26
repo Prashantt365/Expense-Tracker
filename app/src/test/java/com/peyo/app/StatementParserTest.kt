@@ -248,4 +248,37 @@ class StatementParserTest {
         assertEquals(listOf(false, false, true, false), rows.map { it.isCredit })
         assertNotNull(rows.first().date)
     }
+
+    @Test fun `a dotted date is never read as the amount`() {
+        // "05.09" looks like two decimal places; imported, this row would be ₹5.09.
+        val row = parse("05.09.2026 SWIGGY 450.00 12,340.50").single()
+        assertEquals(45000, row.amountPaise)
+        assertEquals(LocalDate.of(2026, 9, 5), dateOf(row.date!!))
+    }
+
+    @Test fun `a dotted value date inside the row is not an amount either`() {
+        assertEquals(45000, parse("05/09/2026 05.09.2026 SWIGGY 450.00 12,340.50").single().amountPaise)
+    }
+
+    @Test fun `rs inside a word is not a currency marker`() {
+        // "Cars24" once tagged ₹24 and hid the real ₹5,000.
+        assertEquals(500000, parse("05 Aug, 2026   Paid to Cars24    ₹5,000").single().amountPaise)
+    }
+
+    @Test fun `a payee starting with CR is not a credit suffix`() {
+        val row = parse("05/09/2026 UPI 450.00 CROMA RETAIL 12,340.50").single()
+        assertEquals(45000, row.amountPaise)
+        assertFalse(row.isCredit)
+    }
+
+    @Test fun `reads Sept as September`() {
+        val rows = parse(
+            """
+            12 Sept 2026 UPI/SWIGGY/1 450.00
+            12 Sept. 2026 UPI/ZOMATO/2 450.00
+            """.trimIndent()
+        )
+        rows.forEach { assertEquals(LocalDate.of(2026, 9, 12), dateOf(it.date!!)) }
+        assertEquals(2, rows.size)
+    }
 }

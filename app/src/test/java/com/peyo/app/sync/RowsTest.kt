@@ -6,6 +6,7 @@ import com.peyo.app.data.ExpenseSplit
 import com.peyo.app.data.Person
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -155,6 +156,60 @@ class RowsTest {
         val mine = ExpenseSplit(expenseId = 7, personId = null, amountPaise = 9_100, remoteId = "s2", updatedAt = instant)
         val json = Rows.splitJson(mine, "u1", "e1", null)
         assertTrue(json.isNull("person_id"))
+    }
+
+    /**
+     * Editing an expense retires the shares it no longer has by tombstoning them. If the tombstone
+     * did not make the round trip, another phone -- or a restore -- would keep the old shares
+     * beside the new ones and count every balance twice.
+     */
+    @Test fun `a removed split carries its tombstone out and back`() {
+        val retired = ExpenseSplit(
+            id = 5, expenseId = 7, personId = 3, amountPaise = 9_100,
+            remoteId = "s1", updatedAt = instant, deletedAt = instant + 1, syncedAt = null
+        )
+        val json = Rows.splitJson(retired, "u1", expenseRemoteId = "e1", personRemoteId = "p1")
+        assertEquals("2026-09-14T10:00:00.001Z", json.getString("deleted_at"))
+
+        val back = Rows.splitFrom(json, localId = 11, expenseId = 70, personId = 30, syncedAt = 99)!!
+        assertEquals(instant + 1, back.deletedAt)
+        assertEquals(70L, back.expenseId)
+        assertEquals(30L, back.personId)
+        assertEquals(99L, back.syncedAt)
+    }
+
+    @Test fun `a live split comes back live`() {
+        val json = JSONObject(
+            """
+            {"id":"s1","expense_id":"e1","person_id":null,"amount_minor":100,"settled_at":null,
+             "updated_at":"2026-09-14T10:00:00Z","deleted_at":null}
+            """.trimIndent()
+        )
+        assertNull(Rows.splitFrom(json, 1, 7, null, 0)!!.deletedAt)
+    }
+
+    /**
+     * What a restore meets for every row it re-reads: the same contents under the server's stamp.
+     * Only the bookkeeping differs, and that must not make two versions look different.
+     */
+    @Test fun `the same contents under different stamps are the same`() {
+        val held = Expense(
+            id = 7, amountPaise = 18_200, category = "Food", note = "pizza", merchant = "Swiggy",
+            paidAt = instant, sourceUri = "content://shot", remoteId = "e1",
+            updatedAt = instant, syncedAt = null
+        )
+        val pulled = Rows.expenseFrom(Rows.expenseJson(held, "u1", "INR").put("updated_at", "2026-09-14T11:00:00Z"), 0, 99)!!
+        assertTrue(sameContent(held, pulled))
+
+        assertFalse(sameContent(held, pulled.copy(amountPaise = 18_300)))
+        assertFalse(sameContent(held, pulled.copy(deletedAt = instant)))
+    }
+
+    @Test fun `a split differing only in its tombstone is not the same`() {
+        val live = ExpenseSplit(expenseId = 7, personId = 3, amountPaise = 100, remoteId = "s1", updatedAt = instant)
+        assertTrue(sameContent(live, live.copy(id = 9, updatedAt = instant + 5, syncedAt = 1)))
+        assertFalse(sameContent(live, live.copy(deletedAt = instant)))
+        assertFalse(sameContent(live, live.copy(personId = 4)))
     }
 
     @Test fun `a category round trips`() {

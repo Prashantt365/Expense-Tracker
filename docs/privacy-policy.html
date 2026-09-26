@@ -138,10 +138,14 @@
   <p>Peyo requests the READ_CONTACTS permission only when you choose to import people from your
   phone's contact list, from the People section of Settings. If granted:</p>
   <ul>
-    <li>Only contact names are read, to offer them as people to add.</li>
-    <li>Nothing is written back to your contacts, and no contact data (names, phone numbers, or
-      anything else) is sent off your device.</li>
-    <li>You choose which names, if any, to add before anything is saved.</li>
+    <li>Only contact names are read, to offer them as people to add. Phone numbers, email
+      addresses and every other contact detail are never read.</li>
+    <li>Nothing is written back to your contacts.</li>
+    <li>You choose which names, if any, to add before anything is saved. Names you do not add are
+      discarded and never leave your device.</li>
+    <li>A name you add becomes a person in Peyo like one you typed. If you use the optional
+      account described in section 5, your people are backed up with the rest of your data, so an
+      added name is sent to that backend along with them.</li>
   </ul>
   <p>You can decline this permission and add people by typing their names instead; every other
   feature of the app works without it.</p>
@@ -162,8 +166,8 @@
   when the app opens, unless you turn automatic backup off in Settings; a manual "Back up now"
   button is available either way. Restoring reads that same data back down onto a device, for
   example after reinstalling the app.</p>
-  <p>If Peyo is built without a backend configured, the account screens are hidden entirely and
-  no network request of this kind is ever made; the app runs wholly offline and only the local
+  <p>If Peyo is built without a backend configured, the account options are shown as unavailable
+  and no network request of this kind is ever made; the app runs wholly offline and only the local
   file backup described in section 7 is available.</p>
   <p>You can sign out and stop syncing at any time from Settings. You can also delete your account
   entirely, in the app or by email &mdash; see our

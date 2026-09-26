@@ -1,6 +1,7 @@
 package com.peyo.app.ui
 
 import com.peyo.app.AppCurrency
+import com.peyo.app.SplitCalculator
 import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.NumberFormat
@@ -48,8 +49,10 @@ fun moneyCompact(minorUnits: Long): String {
     val units = minorUnits / 100
     val sign = if (units < 0) "-" else ""
     val magnitude = kotlin.math.abs(units)
+    // The thresholds sit where the rounded figure would reach the next unit, not at the unit
+    // itself: 9,999,950 rounds to 10000.0K, which should read 10M.
     val body = when {
-        magnitude >= 10_000_000 -> trim(magnitude / 1_000_000.0) + "M"
+        magnitude >= 9_999_950 -> trim(magnitude / 1_000_000.0) + "M"
         magnitude >= 100_000 -> trim(magnitude / 1_000.0) + "K"
         else -> NumberFormat.getIntegerInstance(Locale.getDefault()).format(magnitude)
     }
@@ -92,10 +95,9 @@ fun dayHeading(millis: Long, zone: ZoneId = ZoneId.systemDefault()): String {
 fun dayKey(millis: Long, zone: ZoneId = ZoneId.systemDefault()): Long =
     Instant.ofEpochMilli(millis).atZone(zone).toLocalDate().toEpochDay()
 
-/** Typed amount to stored hundredths, tolerating the extra precision OCR sometimes reports. */
-fun amountToMinorUnits(text: String): Long? = runCatching {
-    BigDecimal(text.trim().replace(",", ""))
-        .movePointRight(2)
-        .setScale(0, RoundingMode.HALF_UP)
-        .longValueExact()
-}.getOrNull()
+/**
+ * Typed amount to stored hundredths, tolerating the extra precision OCR sometimes reports and a
+ * comma typed as the decimal point. The editor previews with this and the save path stores with
+ * [SplitCalculator.parsePaise], so the two share one implementation rather than drift apart.
+ */
+fun amountToMinorUnits(text: String): Long? = SplitCalculator.parsePaise(text)

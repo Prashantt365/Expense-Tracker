@@ -102,4 +102,30 @@ class SplitCalculatorTest {
         assertEquals(125050L, SplitCalculator.parsePaise("1,250.50"))
         assertEquals(null, SplitCalculator.parsePaise("not a number"))
     }
+
+    @Test fun `a full hundred percent never overshoots the total through rounding`() {
+        // Rounded one at a time, 50% of 10.01 twice was 5.01 + 5.01 and the split was refused.
+        val valid = SplitCalculator.compute(1001, SplitMode.PERCENT, mapOf(1L to "50", 2L to "50")) as SplitResult.Valid
+        assertEquals(1001, valid.shares.sumOf { it.amountPaise })
+        assertEquals(0, valid.myShare)
+        assertEquals(listOf(500L, 501L), valid.shares.map { it.amountPaise }.sorted())
+    }
+
+    @Test fun `thirds of a bill reconcile exactly`() {
+        val valid = SplitCalculator.compute(
+            10000, SplitMode.PERCENT, mapOf(1L to "33.3333", 2L to "33.3333", 3L to "33.3334")
+        ) as SplitResult.Valid
+        assertEquals(10000, valid.shares.sumOf { it.amountPaise })
+        assertTrue(valid.shares.all { it.amountPaise in 3333L..3334L })
+    }
+
+    @Test fun `a comma typed as the decimal point is read as one`() {
+        assertEquals(1250L, SplitCalculator.parsePaise("12,50"))
+        assertEquals(1250L, SplitCalculator.parsePaise("12,5"))
+        assertEquals(123450L, SplitCalculator.parsePaise("1.234,50"))
+        // Grouping commas still group.
+        assertEquals(100000L, SplitCalculator.parsePaise("1,000"))
+        assertEquals(10000000L, SplitCalculator.parsePaise("1,00,000"))
+        assertEquals(1234050L, SplitCalculator.parsePaise("12,340.50"))
+    }
 }

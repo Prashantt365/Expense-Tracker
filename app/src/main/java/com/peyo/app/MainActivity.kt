@@ -59,7 +59,11 @@ class MainActivity : ComponentActivity() {
         // theme the user picked rather than a light flash followed by the dark one.
         AppCurrency.load(this)
         ThemeSettings.load(this)
-        consume(intent)
+        // Only on a genuine launch. A rotation recreates the activity with the very intent it
+        // was launched by, and consuming that again replayed it: the PDF picker reopened, a shared
+        // screenshot was read a second time, and a statement already being reviewed was parsed
+        // afresh with the user's ticks thrown away.
+        if (savedInstanceState == null) consume(intent)
         val account = Account(this)
         val settings = BackupSettings(this)
         setContent {
@@ -121,7 +125,13 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent) { super.onNewIntent(intent); consume(intent) }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Kept as the activity's intent too, so that anything reading it later sees the latest
+        // request rather than the one the activity happened to be created with.
+        setIntent(intent)
+        consume(intent)
+    }
 
     private fun consume(intent: Intent) {
         val next = when (intent.action) {

@@ -60,6 +60,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -133,6 +134,11 @@ fun SettingsScreen(
     val syncing by vm.syncing.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
     val lastSyncAt by vm.lastSyncAt.collectAsState()
+    // A sync can find the session revoked and sign the phone out underneath this screen, which
+    // otherwise went on showing the account as signed in with every backup quietly refused.
+    LaunchedEffect(lastSync) {
+        if (lastSync is SyncOutcome.NotSignedIn) session = account.stored()
+    }
     val autoBackup by vm.autoBackup.collectAsState()
     val fileOutcome by vm.fileOutcome.collectAsState()
 
@@ -501,12 +507,32 @@ fun SettingsScreen(
     }
     editingCategory?.let { category ->
         NameDialog("Rename category", category.name, { editingCategory = null }) {
-            vm.renameCategory(category, it); editingCategory = null
+            val wanted = it.trim()
+            vm.renameCategory(category, wanted) {
+                refused = Refusal(
+                    title = "There's already a category called $wanted",
+                    body = "Two categories with one name couldn't be told apart in the picker " +
+                        "or in Insights. Pick a different name for ${category.name}.",
+                    actionLabel = "Choose another name",
+                    action = { editingCategory = category }
+                )
+            }
+            editingCategory = null
         }
     }
     editingPerson?.let { person ->
         NameDialog("Rename person", person.name, { editingPerson = null }) {
-            vm.renamePerson(person, it); editingPerson = null
+            val wanted = it.trim()
+            vm.renamePerson(person, wanted) {
+                refused = Refusal(
+                    title = "You already have $wanted in your people",
+                    body = "Two people with one name couldn't be told apart when splitting a " +
+                        "bill or settling up. Pick a different name for ${person.name}.",
+                    actionLabel = "Choose another name",
+                    action = { editingPerson = person }
+                )
+            }
+            editingPerson = null
         }
     }
 }

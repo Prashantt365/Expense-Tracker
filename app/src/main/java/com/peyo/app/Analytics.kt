@@ -1,6 +1,7 @@
 package com.peyo.app
 
 import com.peyo.app.data.ExpenseDetails
+import com.peyo.app.data.ExpenseSplit
 import com.peyo.app.data.Person
 import java.time.DayOfWeek
 import java.time.Instant
@@ -63,7 +64,10 @@ data class AnalyticsReport(
     val categories: List<CategorySlice>,
     val people: List<PersonAnalytics>,
     val weekdays: List<WeekdayPoint>,
-    /** My spend this month against last month, as a fraction. Null when last month is empty. */
+    /**
+     * My spend so far this month against the same days of last month, as a fraction. Null when
+     * those days of last month are empty.
+     */
     val monthOverMonth: Float?
 ) {
     val grossPaise: Long get() = minePaise + onOthersPaise
@@ -141,7 +145,7 @@ object Analytics {
     private fun peopleAnalytics(rows: List<ExpenseDetails>, people: List<Person>): List<PersonAnalytics> {
         val names = people.associate { it.id to it.name }
         val shares = rows.flatMap { details ->
-            details.splits.filter { it.personId != null }.map { details to it }
+            details.liveSplits.filter { it.personId != null }.map { details to it }
         }
         return shares.groupBy { (_, split) -> split.personId!! }
             .map { (personId, entries) ->
@@ -170,13 +174,23 @@ object Analytics {
         }
     }
 
+    /**
+     * Month to date against the same stretch of last month. Setting a partial month against a
+     * whole one would show a steep fall every morning of the 3rd. On the last day of the month the
+     * whole of last month is used, so a 30-day month is not denied the 31st it is being compared to.
+     */
     private fun monthOverMonth(all: List<ExpenseDetails>, zone: ZoneId, today: LocalDate): Float? {
         val current = YearMonth.from(today)
         val previous = current.minusMonths(1)
-        val byMonth = all.groupBy { YearMonth.from(it.expense.paidAt.toLocalDate(zone)) }
-        val before = byMonth[previous].orEmpty().sumOf { it.minePaise() }
+        val cutoff = if (today.dayOfMonth == current.lengthOfMonth()) previous.lengthOfMonth()
+        else minOf(today.dayOfMonth, previous.lengthOfMonth())
+        fun spent(month: YearMonth, lastDay: Int) = all.filter { details ->
+            val date = details.expense.paidAt.toLocalDate(zone)
+            YearMonth.from(date) == month && date.dayOfMonth <= lastDay
+        }.sumOf { it.minePaise() }
+        val before = spent(previous, cutoff)
         if (before == 0L) return null
-        val now = byMonth[current].orEmpty().sumOf { it.minePaise() }
+        val now = spent(current, today.dayOfMonth)
         return (now - before).toFloat() / before
     }
 
@@ -214,13 +228,22 @@ object Analytics {
         Instant.ofEpochMilli(this).atZone(zone).toLocalDate()
 }
 
+/**
+ * The splits still in force. Editing an expense soft-deletes its old splits so the removal can
+ * sync, which leaves them attached to the expense; counting them would bill people twice.
+ */
+private val ExpenseDetails.liveSplits: List<ExpenseSplit>
+    get() = splits.filter { it.deletedAt == null }
+
 /** My own share: what is left after everyone else's shares are taken out. */
-fun ExpenseDetails.minePaise(): Long =
-    if (splits.isEmpty()) expense.amountPaise
-    else splits.filter { it.personId == null }.sumOf { it.amountPaise }
+fun ExpenseDetails.minePaise(): Long {
+    val live = liveSplits
+    return if (live.isEmpty()) expense.amountPaise
+    else live.filter { it.personId == null }.sumOf { it.amountPaise }
+}
 
 fun ExpenseDetails.othersPaise(): Long =
-    splits.filter { it.personId != null }.sumOf { it.amountPaise }
+    liveSplits.filter { it.personId != null }.sumOf { it.amountPaise }
 
 fun ExpenseDetails.settledPaise(): Long =
-    splits.filter { it.personId != null && it.settledAt != null }.sumOf { it.amountPaise }
+    liveSplits.filter { it.personId != null && it.settledAt != null }.sumOf { it.amountPaise }

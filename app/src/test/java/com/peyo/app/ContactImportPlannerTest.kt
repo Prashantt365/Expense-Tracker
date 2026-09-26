@@ -58,6 +58,13 @@ class ContactImportPlannerTest {
         assertTrue(plan.none { it.duplicateOfEarlierContact })
     }
 
+    @Test fun `an identically spelled contact is offered once`() {
+        // The picker keys its rows by name, so two identical names used to crash it.
+        val plan = ContactImportPlanner.plan(listOf("Asha", "Asha ", "Priya"), emptyList())
+        assertEquals(listOf("Asha", "Priya"), plan.map { it.name })
+        assertEquals(plan.size, plan.map { it.name }.toSet().size)
+    }
+
     @Test fun `an empty phone book plans nothing`() {
         assertTrue(ContactImportPlanner.plan(emptyList(), listOf("Rahul")).isEmpty())
     }

@@ -335,4 +335,40 @@ class OcrReceiptParserTest {
         )
         assertEquals("182", draft.amount)
     }
+
+    @Test fun `rs or inr inside a word is not a currency marker`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            ₹18
+            Paid to Cars24
+            Offers 20
+            Completed
+            """.trimIndent()
+        )
+        // Read as currency, 24 and 20 would outrank the real ₹18 as the larger tagged figures.
+        assertEquals("18", draft.amount)
+    }
+
+    @Test fun `keeps a leading 7 that the digit grouping proves is real`() {
+        val draft = OcrReceiptParser.parse(
+            """
+            7,500
+            To Swiggy
+            Completed
+            """.trimIndent()
+        )
+        assertEquals("7500", draft.amount)
+    }
+
+    @Test fun `still strips a misread rupee glyph when the grouping survives it`() {
+        // "₹1,500" misread as "71,500": the "1,500" left behind is still properly grouped.
+        val draft = OcrReceiptParser.parse(
+            """
+            71,500
+            To Swiggy
+            Completed
+            """.trimIndent()
+        )
+        assertEquals("1500", draft.amount)
+    }
 }

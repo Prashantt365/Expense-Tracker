@@ -19,9 +19,15 @@ data class ReceiptDraft(
  */
 object OcrReceiptParser {
 
-    /** "1,250.50", "Rs. 400", "INR 90" with an explicit currency marker in front. */
+    /**
+     * "1,250.50", "Rs. 400", "INR 90" with an explicit currency marker in front. "Rs" and "INR"
+     * must start a word, or "Cars24" and "Offers 20" would pass for top-confidence amounts.
+     */
     private val currencyAmount =
-        Regex("(?:\u20B9|rs\\.?|inr)\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)", RegexOption.IGNORE_CASE)
+        Regex("(?:\u20B9|\\b(?:rs\\.?|inr))\\s*([0-9][0-9,]*(?:\\.[0-9]{1,2})?)", RegexOption.IGNORE_CASE)
+
+    /** Western "12,500" or Indian "1,25,000" digit grouping. */
+    private val groupedDigits = Regex("^(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]{1,2}(?:,[0-9]{2})*,[0-9]{3})(?:\\.[0-9]{1,2})?$")
 
     /** A line holding a number and nothing else: a headline amount, or an account tail. */
     private val bareAmount = Regex("^([0-9][0-9,]*(?:\\.[0-9]{1,2})?)$")
@@ -143,7 +149,10 @@ object OcrReceiptParser {
                     // Bare number.
                     candidates += Candidate(clean, if (isHeadline) 60 else 50, index)
                     // If it starts with 7 or 2 and it's 4+ digits, it might be a mangled Rupee glyph.
-                    if ((raw.startsWith('7') || raw.startsWith('2')) && clean.length >= 4) {
+                    // Commas settle it, though: in "7,500" the grouping only works if the 7 is a
+                    // real digit, whereas the "1,500" left from "71,500" is still grouped properly.
+                    val groupingIntact = !raw.contains(',') || groupedDigits.matches(raw.substring(1))
+                    if ((raw.startsWith('7') || raw.startsWith('2')) && clean.length >= 4 && groupingIntact) {
                         val stripped = clean.substring(1)
                         if (stripped.length >= 2) {
                             // High confidence if it's a '7' (closest to Rupee glyph) or if verified by phrase later.

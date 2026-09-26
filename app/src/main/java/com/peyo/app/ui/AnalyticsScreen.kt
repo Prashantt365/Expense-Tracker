@@ -182,9 +182,9 @@ private fun TrendPill(change: Float) {
         Icon(icon, null, Modifier.size(15.dp), tint = colour)
         Text(
             when {
-                rising -> "$percent% more than last month"
-                falling -> "$percent% less than last month"
-                else -> "Level with last month"
+                rising -> "$percent% more than this time last month"
+                falling -> "$percent% less than this time last month"
+                else -> "Level with this time last month"
             },
             style = MaterialTheme.typography.labelMedium,
             color = colour

@@ -57,8 +57,8 @@ supabase.url=https://<project>.supabase.co
 supabase.anonKey=<anon key>
 ```
 
-A build without those stays wholly offline and hides the account screens; the local backup file
-still works. The anon key is meant to ship inside the APK — row level security on every table, not
+A build without those stays wholly offline and shows the account options as unavailable; the
+local backup file still works. The anon key is meant to ship inside the APK — row level security on every table, not
 the key, is what keeps one account out of another's data.
 
 `schema.sql` is re-runnable: applying it twice changes nothing, so run it again after pulling
@@ -253,9 +253,10 @@ unique index on the name.
 
 ## Privacy
 
-Attachments are copied into app-private storage. OCR runs on-device, and the expense database is
-excluded from Android's automatic cloud backup. This project does not access Google Pay data, SMS,
-notifications, contacts, or bank accounts.
+Attachments are copied into app-private storage. OCR runs on-device. The expense database, the
+attachments, the signed-in session and the sync position are all excluded from Android's automatic
+backup and device transfer. Contacts are read only when you ask to import names, and only names;
+this project does not access Google Pay data, SMS, notifications, or bank accounts.
 
 ## Next recommended iteration
 

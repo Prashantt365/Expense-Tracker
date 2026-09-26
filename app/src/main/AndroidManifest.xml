@@ -2,8 +2,8 @@
 
     <!--
       Read only, requested at runtime from the people settings and only when the user asks to
-      import. Names are read into the people list; nothing is written back and nothing leaves
-      the device.
+      import. Only names are read, and only the ones the user ticks are kept, as people; nothing
+      is written back. Those people then sync like any other when an account is signed in.
     -->
     <uses-permission android:name="android.permission.READ_CONTACTS" />
 
