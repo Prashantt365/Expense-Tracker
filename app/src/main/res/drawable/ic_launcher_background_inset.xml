@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Wraps full-bleed icon backgrounds to scale them safely inside the launcher's 72dp safe zone -->
-<inset xmlns:android="http://schemas.android.com/apk/res/android"
-    android:drawable="@mipmap/ic_launcher_background"
-    android:insetLeft="14dp"
-    android:insetRight="14dp"
-    android:insetTop="14dp"
-    android:insetBottom="14dp" />

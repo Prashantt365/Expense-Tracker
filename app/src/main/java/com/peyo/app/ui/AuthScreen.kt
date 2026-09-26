@@ -71,23 +71,15 @@ enum class AuthMode { SIGN_IN, SIGN_UP }
 @Composable
 private fun PeyoMark(subtitle: String? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            Modifier.size(76.dp).clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primaryContainer),
-            contentAlignment = Alignment.Center
-        ) {
-            // The monochrome layer rather than the launcher icon itself: ic_launcher is an
-            // adaptive icon, which is an XML the loader cannot rasterise, and the full artwork
-            // carries the wordmark that is already set in type immediately below this.
-            Image(
-                painterResource(R.mipmap.ic_launcher_monochrome),
-                null,
-                Modifier.size(52.dp),
-                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.onPrimaryContainer)
-            )
-        }
-        Spacer(Modifier.height(14.dp))
-        Text("Peyo", style = MaterialTheme.typography.headlineLarge)
+        // The wordmark is the whole of the logo, so it is drawn here rather than set in type. It is
+        // stored as a white mask and tinted, which keeps it legible in dark theme where the brand
+        // green of the launcher icon would all but vanish against the background.
+        Image(
+            painterResource(R.drawable.peyo_wordmark),
+            contentDescription = "Peyo",
+            Modifier.height(48.dp),
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary)
+        )
         subtitle?.let {
             Spacer(Modifier.height(6.dp))
             Text(

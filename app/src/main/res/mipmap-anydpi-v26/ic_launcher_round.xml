@@ -1,15 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  The artwork is full-bleed, so it all lives in the background layer and the foreground is empty.
-  The leaf sits high and the wordmark low, so the art is shifted down inside the 108dp canvas to
-  put the mark on centre, which is what keeps it inside the 72dp a launcher is guaranteed to
-  show whatever mask shape it applies.
+  The Peyo wordmark in brand green on the off-white card. The wordmark is 56dp wide on the 108dp
+  canvas, which keeps all of it inside the 66dp circle a launcher is guaranteed to show whatever
+  mask shape it applies.
 
-  The themed layer is the sprout alone. Flattened to one colour the wordmark would be a smear at
-  launcher size, and the sprout is the half of the mark that still reads.
+  The themed layer is the same wordmark flattened to one colour; with no separate symbol in the
+  mark, the wordmark is the part that has to read.
 -->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
-    <background android:drawable="@drawable/ic_launcher_background_inset" />
-    <foreground android:drawable="@android:color/transparent" />
-    <monochrome android:drawable="@drawable/ic_launcher_monochrome_inset" />
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
 </adaptive-icon>
