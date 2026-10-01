@@ -82,7 +82,7 @@ class MigrationTest {
 
     private fun openMigrated(): AppDatabase =
         Room.databaseBuilder(context, AppDatabase::class.java, name)
-            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+            .addMigrations(AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
             .build()
 
     @Test fun keepsEveryRowAndSatisfiesRoomsOwnSchemaCheck() = runBlocking {
@@ -182,6 +182,19 @@ class MigrationTest {
             assertEquals(null, it.expense.deletedAt)
             assertEquals(null, it.expense.syncedAt)
         }
+        db.close()
+    }
+
+    /** Everything recorded before payers existed was paid by me, which is what null means. */
+    @Test fun everyExistingExpenseIsPaidByMeAfterTheUpgrade() = runBlocking {
+        createVersion2()
+        val db = openMigrated()
+        val expenses = db.expenseDao().observeAll().first()
+        assertTrue(expenses.all { it.expense.paidByPersonId == null })
+        // And what people owe is exactly what it was.
+        val balances = db.expenseDao().observeBalances().first().associate { it.name to it.owedPaise }
+        assertEquals(9100L, balances["Rahul Sharma"])
+        assertEquals(22500L, balances["Priya"])
         db.close()
     }
 }

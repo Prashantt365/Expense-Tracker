@@ -42,7 +42,7 @@ class AnalyticsTest {
     private val rahul = Person(id = 1, name = "Rahul")
     private val priya = Person(id = 2, name = "Priya")
 
-    private fun report(rows: List<ExpenseDetails>, period: Period = Period.MONTH) =
+    private fun report(rows: List<ExpenseDetails>, period: Period = Period.thisMonth(today)) =
         Analytics.build(rows, listOf(rahul, priya), period, zone, today)
 
     @Test fun `my spend excludes what other people owe`() {
@@ -146,9 +146,9 @@ class AnalyticsTest {
             details(2, 20000, date = today.minusMonths(2)),
             details(3, 40000, date = today.minusYears(1))
         )
-        assertEquals(10000, report(rows, Period.MONTH).minePaise)
-        assertEquals(30000, report(rows, Period.YEAR).minePaise)
-        assertEquals(70000, report(rows, Period.ALL).minePaise)
+        assertEquals(10000, report(rows, Period.thisMonth(today)).minePaise)
+        assertEquals(30000, report(rows, Period.Year).minePaise)
+        assertEquals(70000, report(rows, Period.All).minePaise)
     }
 
     @Test fun `the trend always spans twelve months and keeps empty ones`() {
@@ -264,7 +264,58 @@ class AnalyticsTest {
             details(1, 20000, date = lastDay),
             details(2, 10000, date = LocalDate.of(2026, 8, 31))
         )
-        val result = Analytics.build(rows, listOf(rahul, priya), Period.MONTH, zone, lastDay)
+        val result = Analytics.build(rows, listOf(rahul, priya), Period.thisMonth(lastDay), zone, lastDay)
         assertEquals(1f, result.monthOverMonth!!, 0.001f)
+    }
+
+    @Test fun `a past month counts only that month and compares it whole`() {
+        val july = java.time.YearMonth.of(2026, 7)
+        val rows = listOf(
+            details(1, 99000, date = today),
+            details(2, 31000, date = LocalDate.of(2026, 8, 31)),
+            details(3, 31000, date = LocalDate.of(2026, 8, 1)),
+            details(4, 31000, date = LocalDate.of(2026, 7, 31))
+        )
+        val result = report(rows, Period.Month(java.time.YearMonth.of(2026, 8)))
+        assertEquals(62000, result.minePaise)
+        // A finished month divides by all of its days, not by today's date.
+        assertEquals(2000, result.dailyAveragePaise)
+        // The whole of August against the whole of July, the 31st included.
+        assertEquals(1f, result.monthOverMonth!!, 0.001f)
+        assertEquals(false, result.comparedMonthToDate)
+        assertEquals(0, report(rows, Period.Month(july.minusMonths(1))).expenseCount)
+    }
+
+    @Test fun `the current month is labelled as such and others by name`() {
+        assertEquals("This month", Period.thisMonth(today).label(today))
+        assertTrue(Period.Month(java.time.YearMonth.of(2026, 8)).label(today).endsWith("2026"))
+        assertEquals("All time", Period.All.label(today))
+    }
+
+    @Test fun `the month list runs from the first expense to now with gaps kept`() {
+        val rows = listOf(details(1, 100, date = LocalDate.of(2026, 6, 3)), details(2, 100, date = today))
+        val months = pickableMonths(rows, zone, today).map { it.monthValue }
+        assertEquals(listOf(9, 8, 7, 6), months)
+        assertEquals(listOf(java.time.YearMonth.of(2026, 9)), pickableMonths(emptyList(), zone, today))
+    }
+
+    @Test fun `a bill somebody else paid counts my share as mine and owes it to them`() {
+        val rows = listOf(
+            details(
+                1, 90000,
+                splits = listOf(
+                    ExpenseSplit(expenseId = 1, personId = null, amountPaise = 30000),
+                    ExpenseSplit(expenseId = 1, personId = 1, amountPaise = 60000)
+                )
+            ).let { it.copy(expense = it.expense.copy(paidByPersonId = 1)) }
+        )
+        val result = report(rows)
+        // My spending is my share, whoever paid the bill.
+        assertEquals(30000, result.minePaise)
+        // Rahul's own share is not money I fronted, and nobody owes me anything for it.
+        assertEquals(0, result.onOthersPaise)
+        assertEquals(0, result.outstandingPaise)
+        assertTrue(result.people.isEmpty())
+        assertEquals(30000, result.iOwePaise)
     }
 }

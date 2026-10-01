@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Phone
+import com.peyo.app.PhoneNumbers
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FolderOpen
@@ -69,6 +71,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -142,6 +146,8 @@ fun SettingsScreen(
     var deleteAccountConfirm by remember { mutableStateOf(false) }
     var deletingAccount by remember { mutableStateOf(false) }
     var deleteAccountError by remember { mutableStateOf<String?>(null) }
+    var editingName by remember { mutableStateOf(false) }
+    var editingPhone by remember { mutableStateOf(false) }
     val conflicts by vm.conflicts.collectAsState()
     val syncing by vm.syncing.collectAsState()
     val lastSync by vm.lastSync.collectAsState()
@@ -188,6 +194,9 @@ fun SettingsScreen(
         Section("Account")
         AccountCard(
             email = session?.email,
+            name = session?.name,
+            phone = session?.phone,
+            onEditPhone = { editingPhone = true },
             onSignIn = { signingIn = true },
             onSignOut = {
                 scope.launch {
@@ -195,6 +204,7 @@ fun SettingsScreen(
                     session = null
                 }
             },
+            onEditName = { editingName = true },
             onDeleteAccount = { deleteAccountConfirm = true }
         )
 
@@ -364,9 +374,9 @@ fun SettingsScreen(
                 people.firstOrNull { it.name == name }?.let { person ->
                     vm.deletePerson(person) { owing ->
                         refused = Refusal(
-                            title = "${person.name} still owes you",
+                            title = "You and ${person.name} aren't square",
                             body = "$owing unsettled " +
-                                "share${if (owing == 1) "" else "s"} " +
+                                "share${if (owing == 1) "" else "s"} between you " +
                                 "${if (owing == 1) "is" else "are"} outstanding. Removing them now " +
                                 "would take that off your balances as though it had been paid.",
                             actionLabel = "Settle up",
@@ -519,6 +529,28 @@ fun SettingsScreen(
         )
     }
 
+    if (editingPhone) AccountPhoneDialog(
+        initial = session?.phone.orEmpty(),
+        save = account::updatePhone,
+        onSaved = {
+            session = account.stored()
+            editingPhone = false
+            onNotice("Mobile number saved.")
+        },
+        onDismiss = { editingPhone = false }
+    )
+
+    if (editingName) AccountNameDialog(
+        initial = session?.name.orEmpty(),
+        save = account::updateName,
+        onSaved = {
+            session = account.stored()
+            editingName = false
+            onNotice("Name updated.")
+        },
+        onDismiss = { editingName = false }
+    )
+
     if (showingConflicts && conflicts.isNotEmpty()) {
         ConflictDialog(
             conflicts = conflicts,
@@ -538,8 +570,8 @@ fun SettingsScreen(
     if (addingCategory) NameDialog("New category", "", { addingCategory = false }) {
         vm.addCategory(it); addingCategory = false
     }
-    if (addingPerson) NameDialog("New person", "", { addingPerson = false }) {
-        vm.addPerson(it); addingPerson = false
+    if (addingPerson) PersonDialog("New person", "", "", { addingPerson = false }) { name, phone ->
+        vm.addPerson(name, phone); addingPerson = false
     }
     editingCategory?.let { category ->
         NameDialog("Rename category", category.name, { editingCategory = null }) {
@@ -557,9 +589,9 @@ fun SettingsScreen(
         }
     }
     editingPerson?.let { person ->
-        NameDialog("Rename person", person.name, { editingPerson = null }) {
-            val wanted = it.trim()
-            vm.renamePerson(person, wanted) {
+        PersonDialog("Edit person", person.name, person.phone, { editingPerson = null }) { name, phone ->
+            val wanted = name.trim()
+            vm.renamePerson(person, wanted, phone) {
                 refused = Refusal(
                     title = "You already have $wanted in your people",
                     body = "Two people with one name couldn't be told apart when splitting a " +
@@ -804,6 +836,66 @@ fun NameDialog(title: String, initial: String, onDismiss: () -> Unit, onConfirm:
 }
 
 /**
+ * A person's name and, optionally, their mobile number. The number is what lets an expense shared
+ * with them reach their own Peyo account, so it is checked as it is typed and stored in E.164.
+ */
+@Composable
+fun PersonDialog(
+    title: String,
+    initialName: String,
+    initialPhone: String,
+    onDismiss: () -> Unit,
+    onConfirm: (name: String, phone: String) -> Unit
+) {
+    var name by remember { mutableStateOf(initialName) }
+    var phone by remember { mutableStateOf(PhoneNumbers.display(initialPhone)) }
+    val normalized = PhoneNumbers.normalize(phone)
+    val phoneInvalid = phone.isNotBlank() && normalized == null
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    name,
+                    { name = it },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    shape = MaterialTheme.shapes.medium,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Next
+                    )
+                )
+                OutlinedTextField(
+                    phone,
+                    { phone = it },
+                    label = { Text("Mobile number (optional)") },
+                    placeholder = { Text("98765 43210") },
+                    singleLine = true,
+                    isError = phoneInvalid,
+                    shape = MaterialTheme.shapes.medium,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                    supportingText = {
+                        Text(
+                            if (phoneInvalid) PhoneNumbers.INVALID_MESSAGE
+                            else "If they use Peyo, they'll see what you split with them."
+                        )
+                    }
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                { onConfirm(name, normalized.orEmpty()) },
+                enabled = name.isNotBlank() && !phoneInvalid
+            ) { Text("Save") }
+        },
+        dismissButton = { TextButton(onDismiss) { Text("Cancel") } }
+    )
+}
+
+/**
  * The full ISO 4217 list is long enough that it has to be searchable and has to scroll inside a
  * bounded box, or the dialog grows past the window and takes its buttons with it.
  *
@@ -878,8 +970,12 @@ fun CurrencyDialog(
 @Composable
 fun AccountCard(
     email: String?,
+    name: String?,
+    phone: String? = null,
+    onEditPhone: () -> Unit = {},
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
+    onEditName: () -> Unit,
     onDeleteAccount: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -911,7 +1007,22 @@ fun AccountCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 } else {
-                    Text(email, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    if (!name.isNullOrBlank()) {
+                        Text(name, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                        Text(
+                            email,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1
+                        )
+                    } else Text(email, style = MaterialTheme.typography.titleSmall, maxLines = 1)
+                    Text(
+                        if (phone.isNullOrBlank()) "No mobile number yet" else PhoneNumbers.display(phone),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (phone.isNullOrBlank()) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
+                    )
                     Text(
                         "Backed up. Screenshots and attachments stay on this phone.",
                         style = MaterialTheme.typography.bodySmall,
@@ -929,15 +1040,154 @@ fun AccountCard(
         }
         if (!email.isNullOrBlank()) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            TextButton(
-                onDeleteAccount,
-                Modifier.padding(horizontal = 4.dp),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
-            ) {
-                Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp))
-                Gap(6.dp)
-                Text("Delete account")
+            Row(Modifier.padding(horizontal = 4.dp)) {
+                TextButton(onEditName) {
+                    Icon(Icons.Default.Edit, null, Modifier.size(18.dp))
+                    Gap(6.dp)
+                    // An account made before names were asked for has nothing to edit yet.
+                    Text(if (name.isNullOrBlank()) "Add your name" else "Edit name")
+                }
+                TextButton(onEditPhone) {
+                    Icon(Icons.Default.Phone, null, Modifier.size(18.dp))
+                    Gap(6.dp)
+                    Text(if (phone.isNullOrBlank()) "Add number" else "Number")
+                }
+                Spacer(Modifier.weight(1f))
+                TextButton(
+                    onDeleteAccount,
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp))
+                    Gap(6.dp)
+                    Text("Delete account")
+                }
             }
         }
     }
+}
+
+/**
+ * Setting the account's mobile number, which is what lets expenses other people record against it
+ * reach this account. Waits on the server, like renaming.
+ */
+@Composable
+private fun AccountPhoneDialog(
+    initial: String,
+    save: suspend (String) -> Response<Unit>,
+    onSaved: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var typed by remember { mutableStateOf(PhoneNumbers.display(initial)) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val normalized = PhoneNumbers.normalize(typed)
+    val invalid = typed.isNotBlank() && normalized == null
+
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        icon = { Icon(Icons.Default.Phone, null) },
+        title = { Text(if (initial.isBlank()) "Add your mobile number" else "Your mobile number") },
+        text = {
+            OutlinedTextField(
+                typed,
+                { typed = it; error = null },
+                label = { Text("Mobile number") },
+                placeholder = { Text("98765 43210") },
+                singleLine = true,
+                enabled = !saving,
+                isError = invalid || error != null,
+                shape = MaterialTheme.shapes.medium,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Done),
+                supportingText = {
+                    Text(
+                        error ?: if (invalid) PhoneNumbers.INVALID_MESSAGE
+                        else "One account per number. Friends who add it see what they split with you."
+                    )
+                }
+            )
+        },
+        confirmButton = {
+            Button(
+                {
+                    val number = normalized ?: return@Button
+                    saving = true
+                    scope.launch {
+                        when (val result = save(number)) {
+                            is Response.Ok -> onSaved()
+                            is Response.Rejected -> error = result.message
+                            is Response.Offline -> error = "No connection. Try again when you are online."
+                        }
+                        saving = false
+                    }
+                },
+                enabled = normalized != null && normalized != initial && !saving
+            ) {
+                if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onDismiss, enabled = !saving) { Text("Cancel") } }
+    )
+}
+
+/**
+ * Renaming the account. Unlike the other name dialogs this one waits on the server, so it stays
+ * open while saving and says why it failed rather than closing on a change that never happened.
+ */
+@Composable
+private fun AccountNameDialog(
+    initial: String,
+    save: suspend (String) -> Response<Unit>,
+    onSaved: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf(initial) }
+    var saving by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val changed = name.trim().isNotEmpty() && name.trim() != initial.trim()
+
+    AlertDialog(
+        onDismissRequest = { if (!saving) onDismiss() },
+        title = { Text(if (initial.isBlank()) "Add your name" else "Edit your name") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    name,
+                    { name = it; error = null },
+                    label = { Text("Your name") },
+                    singleLine = true,
+                    enabled = !saving,
+                    isError = error != null,
+                    shape = MaterialTheme.shapes.medium,
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Words,
+                        imeAction = ImeAction.Done
+                    ),
+                    supportingText = { Text(error ?: "Saved to your account, so it follows you to any phone.") }
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                {
+                    saving = true
+                    scope.launch {
+                        when (val result = save(name)) {
+                            is Response.Ok -> onSaved()
+                            is Response.Rejected -> error = result.message
+                            is Response.Offline -> error = "No connection. Try again when you are online."
+                        }
+                        saving = false
+                    }
+                },
+                enabled = changed && !saving
+            ) {
+                if (saving) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                else Text("Save")
+            }
+        },
+        dismissButton = { TextButton(onDismiss, enabled = !saving) { Text("Cancel") } }
+    )
 }

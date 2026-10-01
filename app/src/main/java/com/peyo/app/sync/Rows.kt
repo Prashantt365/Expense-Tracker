@@ -68,7 +68,16 @@ object Rows {
         putTime("deleted_at", row.deletedAt)
     }
 
-    fun expenseJson(expense: Expense, userId: String, currency: String): JSONObject =
+    /**
+     * [paidByRemoteId] is the remote id of whoever paid, or null when I did -- the same
+     * translation a split's person goes through, for the same reason.
+     */
+    fun expenseJson(
+        expense: Expense,
+        userId: String,
+        currency: String,
+        paidByRemoteId: String? = null
+    ): JSONObject =
         JSONObject().putCommon(expense, userId).apply {
             put("amount_minor", expense.amountPaise)
             put("currency", currency)
@@ -76,12 +85,14 @@ object Rows {
             put("note", expense.note)
             put("merchant", expense.merchant)
             putTime("paid_at", expense.paidAt)
+            put("paid_by", paidByRemoteId ?: JSONObject.NULL)
         }
 
     fun personJson(person: Person, userId: String): JSONObject =
         JSONObject().putCommon(person, userId).apply {
             put("name", person.name)
             put("note", person.note)
+            put("phone", person.phone)
         }
 
     fun categoryJson(category: Category, userId: String): JSONObject =
@@ -111,7 +122,12 @@ object Rows {
      * needs the database. syncedAt is stamped because a row just read from the server is by
      * definition in step with it.
      */
-    fun expenseFrom(json: JSONObject, localId: Long, syncedAt: Long): Expense? {
+    fun expenseFrom(
+        json: JSONObject,
+        localId: Long,
+        syncedAt: Long,
+        paidByPersonId: Long? = null
+    ): Expense? {
         val remoteId = json.stringOrNull("id") ?: return null
         return Expense(
             id = localId,
@@ -124,7 +140,8 @@ object Rows {
             remoteId = remoteId,
             updatedAt = fromIso(json.stringOrNull("updated_at")) ?: return null,
             deletedAt = fromIso(json.stringOrNull("deleted_at")),
-            syncedAt = syncedAt
+            syncedAt = syncedAt,
+            paidByPersonId = paidByPersonId
         )
     }
 
@@ -135,6 +152,7 @@ object Rows {
             id = localId,
             name = name,
             note = json.optString("note").takeIf { !json.isNull("note") }.orEmpty(),
+            phone = json.stringOrNull("phone").orEmpty(),
             remoteId = remoteId,
             updatedAt = fromIso(json.stringOrNull("updated_at")) ?: return null,
             deletedAt = fromIso(json.stringOrNull("deleted_at")),

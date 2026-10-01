@@ -53,8 +53,21 @@ data class Expense(
     @ColumnInfo(defaultValue = "''") override val remoteId: String = newRemoteId(),
     @ColumnInfo(defaultValue = "0") override val updatedAt: Long = System.currentTimeMillis(),
     override val deletedAt: Long? = null,
-    override val syncedAt: Long? = null
-) : Synced
+    override val syncedAt: Long? = null,
+    /**
+     * Who paid the bill: null is me, anything else is the person who paid it for me.
+     *
+     * It decides which way every share on the expense runs. On a bill I paid, a person's share is
+     * what they owe me. On a bill somebody else paid, my own share (the split with no person) is
+     * what I owe them, and their share is simply theirs -- nobody owes anybody for it.
+     *
+     * Not a foreign key: people are never removed outright, only tombstoned, and a cascade or a
+     * set-null here would quietly turn a debt to somebody into money I had spent myself.
+     */
+    val paidByPersonId: Long? = null
+) : Synced {
+    val paidByMe: Boolean get() = paidByPersonId == null
+}
 
 /** The editable pick-list. Expenses store their category by name so deleting one cannot orphan them. */
 @Entity(
@@ -82,6 +95,11 @@ data class Person(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val note: String = "",
+    /**
+     * Their mobile number in E.164, or blank. A number is what links this person to their own
+     * account: expenses shared with them show up on their phone, and theirs with me on mine.
+     */
+    @ColumnInfo(defaultValue = "''") val phone: String = "",
     // The defaults are declared so that the schema Room expects matches the one the migration
     // leaves behind. Adding a NOT NULL column to a populated table needs a DEFAULT, and Room
     // compares defaults when it validates, so omitting these here fails the upgrade at runtime.
@@ -174,17 +192,33 @@ data class ExpenseDetails(
     @Relation(parentColumn = "id", entityColumn = "expenseId") val splits: List<ExpenseSplit>,
     @Relation(parentColumn = "id", entityColumn = "expenseId") val attachments: List<Attachment>
 ) {
-    /** What other people still owe me on this expense. */
+    /** What other people still owe me on this expense. Nothing, on a bill somebody else paid. */
     val outstandingPaise: Long
-        get() = splits.filter { it.personId != null && it.settledAt == null && it.deletedAt == null }
+        get() = if (!expense.paidByMe) 0L
+        else splits.filter { it.personId != null && it.settledAt == null && it.deletedAt == null }
+            .sumOf { it.amountPaise }
+
+    /** What I still owe whoever paid this, when it was not me. */
+    val iOwePaise: Long
+        get() = if (expense.paidByMe) 0L
+        else splits.filter { it.personId == null && it.settledAt == null && it.deletedAt == null }
             .sumOf { it.amountPaise }
 }
 
-/** One row per person, carrying what they currently owe. */
+/**
+ * Where I stand with one person.
+ *
+ * [owedPaise] is the net of the two directions: positive when they owe me, negative when I owe
+ * them. The two sides are kept as well, so the screen can say what the net is made of.
+ */
 data class PersonBalance(
     val personId: Long,
     val name: String,
-    val owedPaise: Long
+    val owedPaise: Long,
+    /** Their unsettled shares of bills I paid. */
+    val owedToMePaise: Long = maxOf(owedPaise, 0),
+    /** My unsettled shares of bills they paid. */
+    val iOwePaise: Long = maxOf(-owedPaise, 0)
 )
 
 /** An unsettled share, joined with the expense it belongs to, for the settle-up list. */
@@ -194,5 +228,7 @@ data class OutstandingShare(
     val amountPaise: Long,
     val merchant: String,
     val category: String,
-    val paidAt: Long
+    val paidAt: Long,
+    /** True for my share of a bill they paid; false for their share of a bill I paid. */
+    val iOwe: Boolean = false
 )

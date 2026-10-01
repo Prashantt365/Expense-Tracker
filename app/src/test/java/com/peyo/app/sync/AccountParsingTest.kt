@@ -60,6 +60,16 @@ class AccountParsingTest {
         assertNull(sessionFrom(awaiting, now))
     }
 
+    @Test fun `the name given at signup comes back from the user metadata`() {
+        val json = tokenResponse()
+        json.getJSONObject("user").put("user_metadata", JSONObject().put("full_name", "  Asha Rao "))
+        assertEquals("Asha Rao", sessionFrom(json, now)!!.name)
+    }
+
+    @Test fun `an account made before names were asked for has a blank name`() {
+        assertEquals("", sessionFrom(tokenResponse(), now)!!.name)
+    }
+
     @Test fun `a response missing the user is not a session`() {
         val headless = JSONObject("""{"access_token":"a","refresh_token":"b","expires_in":3600}""")
         assertNull(sessionFrom(headless, now))

@@ -219,7 +219,8 @@ fun Stat(
     label: String,
     value: String,
     modifier: Modifier = Modifier,
-    valueColor: Color = Color.Unspecified
+    valueColor: Color = Color.Unspecified,
+    labelColor: Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(
@@ -232,7 +233,7 @@ fun Stat(
         Text(
             label,
             style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            color = labelColor
         )
     }
 }
@@ -359,6 +360,8 @@ fun FlowChips(
     selected: String,
     modifier: Modifier = Modifier,
     withIcons: Boolean = true,
+    /** Flows on after the last option, such as a chip that adds another one. */
+    trailing: (@Composable () -> Unit)? = null,
     onSelect: (String) -> Unit
 ) {
     FlowRow(
@@ -377,6 +380,7 @@ fun FlowChips(
                 shape = MaterialTheme.shapes.small
             )
         }
+        trailing?.invoke()
     }
 }
 

@@ -24,6 +24,11 @@ internal fun sessionFrom(json: JSONObject, now: Long = System.currentTimeMillis(
     return Session(
         userId = userId,
         email = user.stringOrNull("email").orEmpty(),
+        // Given at signup and kept by GoTrue in the user's metadata, so it arrives with every
+        // sign-in and refresh, on any phone.
+        name = user.optJSONObject("user_metadata")?.stringOrNull("full_name")?.trim().orEmpty(),
+        // Kept in the same metadata, already in E.164, for the same reason.
+        phone = user.optJSONObject("user_metadata")?.stringOrNull("phone_number")?.trim().orEmpty(),
         accessToken = access,
         refreshToken = refresh,
         expiresAt = now + expiresIn * 1000
@@ -46,6 +51,10 @@ internal fun refreshIsFinal(status: Int): Boolean = status == 400 || status == 4
 data class Session(
     val userId: String,
     val email: String,
+    /** What the user asked to be called. Blank for accounts made before names were asked for. */
+    val name: String = "",
+    /** The account's mobile number in E.164. Blank for accounts made before numbers were asked for. */
+    val phone: String = "",
     val accessToken: String,
     val refreshToken: String,
     /** Device-clock millis at which [accessToken] stops being accepted. */
@@ -96,6 +105,8 @@ class Account(context: Context) {
         return Session(
             userId = userId,
             email = prefs.getString(KEY_EMAIL, "").orEmpty(),
+            name = prefs.getString(KEY_NAME, "").orEmpty(),
+            phone = prefs.getString(KEY_PHONE, "").orEmpty(),
             accessToken = access,
             refreshToken = refresh,
             expiresAt = prefs.getLong(KEY_EXPIRES_AT, 0)
@@ -106,6 +117,8 @@ class Account(context: Context) {
         prefs.edit()
             .putString(KEY_USER_ID, session.userId)
             .putString(KEY_EMAIL, session.email)
+            .putString(KEY_NAME, session.name)
+            .putString(KEY_PHONE, session.phone)
             .putString(KEY_ACCESS, session.accessToken)
             .putString(KEY_REFRESH, session.refreshToken)
             .putLong(KEY_EXPIRES_AT, session.expiresAt)
@@ -114,15 +127,32 @@ class Account(context: Context) {
 
     fun forget() = prefs.edit().clear().apply()
 
-    suspend fun signUp(email: String, password: String): SignUpResult {
+    /**
+     * [phone] must already be in E.164 (see [com.peyo.app.PhoneNumbers]); it is what links this
+     * account to the expenses other people record against that number.
+     */
+    suspend fun signUp(name: String, phone: String, email: String, password: String): SignUpResult {
+        when (val taken = isPhoneTaken(phone)) {
+            is Response.Ok -> if (taken.body) return SignUpResult.Failed(PHONE_TAKEN)
+            is Response.Offline -> return SignUpResult.Failed("No connection. Try again when you are online.")
+            // A project without the sharing schema yet: the signup itself still decides.
+            is Response.Rejected -> Unit
+        }
         val response = Supabase.request(
             method = "POST",
             path = "/auth/v1/signup",
-            body = credentials(email, password)
+            body = JSONObject(credentials(email, password))
+                .put("data", JSONObject().put("full_name", name.trim()).put("phone_number", phone))
+                .toString()
         )
         return when (response) {
             is Response.Offline -> SignUpResult.Failed("No connection. Try again when you are online.")
-            is Response.Rejected -> SignUpResult.Failed(response.message)
+            // The database refusing the new user is, in practice, the number having been taken
+            // between the check above and the signup -- GoTrue reports it only as a database error.
+            is Response.Rejected -> SignUpResult.Failed(
+                if (response.message.contains("Database error", ignoreCase = true)) PHONE_TAKEN
+                else response.message
+            )
             is Response.Ok -> {
                 val json = response.body.asJsonObject()
                     ?: return SignUpResult.Failed("The server sent something unreadable.")
@@ -230,6 +260,74 @@ class Account(context: Context) {
         return response.map {}
     }
 
+    /**
+     * Changes the name the account goes by. It lives in the user's GoTrue metadata, where signup
+     * put it, so the next sign-in on any phone brings back the new one; the profiles trigger
+     * mirrors it into public.profiles. Only the stored session is updated here -- the rest of the
+     * session is the server's to change.
+     */
+    suspend fun updateName(name: String): Response<Unit> {
+        val token = when (val fresh = freshToken()) {
+            null -> return Response.Rejected(401, "Sign in again, then change your name.")
+            is Response.Offline -> return fresh
+            is Response.Rejected -> return fresh
+            is Response.Ok -> fresh.body
+        }
+        val trimmed = name.trim()
+        var response = putName(token, trimmed)
+        // Same recovery as deleting: a token the device clock called live can still be refused.
+        if (response is Response.Rejected && response.status == 401) {
+            val retried = freshToken(force = true)
+            if (retried is Response.Ok) response = putName(retried.body, trimmed)
+        }
+        if (response is Response.Ok) stored()?.let { remember(it.copy(name = trimmed)) }
+        return response.map {}
+    }
+
+    private suspend fun putName(token: String, name: String) = Supabase.request(
+        method = "PUT",
+        path = "/auth/v1/user",
+        body = JSONObject().put("data", JSONObject().put("full_name", name)).toString(),
+        accessToken = token
+    )
+
+    /** Whether another account already holds [phone], an E.164 number. */
+    suspend fun isPhoneTaken(phone: String): Response<Boolean> {
+        val token = (freshToken() as? Response.Ok)?.body
+        return Supabase.request(
+            method = "POST",
+            path = "/rest/v1/rpc/phone_is_taken",
+            body = JSONObject().put("p_phone", phone).toString(),
+            accessToken = token
+        ).map { it.trim() == "true" }
+    }
+
+    /**
+     * Sets or changes the account's mobile number. Checked against other accounts first, since
+     * the server keeps the old number, rather than failing, when the new one turns out to be taken.
+     */
+    suspend fun updatePhone(phone: String): Response<Unit> {
+        when (val taken = isPhoneTaken(phone)) {
+            is Response.Ok -> if (taken.body) return Response.Rejected(409, PHONE_TAKEN)
+            is Response.Offline -> return taken
+            is Response.Rejected -> return taken
+        }
+        val token = when (val fresh = freshToken()) {
+            null -> return Response.Rejected(401, "Sign in again, then change your number.")
+            is Response.Offline -> return fresh
+            is Response.Rejected -> return fresh
+            is Response.Ok -> fresh.body
+        }
+        val body = JSONObject().put("data", JSONObject().put("phone_number", phone)).toString()
+        var response = Supabase.request("PUT", "/auth/v1/user", body, token)
+        if (response is Response.Rejected && response.status == 401) {
+            val retried = freshToken(force = true)
+            if (retried is Response.Ok) response = Supabase.request("PUT", "/auth/v1/user", body, retried.body)
+        }
+        if (response is Response.Ok) stored()?.let { remember(it.copy(phone = phone)) }
+        return response.map {}
+    }
+
     private suspend fun deleteOwnAccount(token: String) = Supabase.request(
         method = "POST",
         path = "/rest/v1/rpc/delete_own_account",
@@ -264,6 +362,10 @@ class Account(context: Context) {
 
         const val KEY_USER_ID = "userId"
         const val KEY_EMAIL = "email"
+        const val KEY_NAME = "name"
+        const val KEY_PHONE = "phone"
+
+        const val PHONE_TAKEN = "That mobile number already has a Peyo account. Sign in to it instead."
         const val KEY_ACCESS = "accessToken"
         const val KEY_REFRESH = "refreshToken"
         const val KEY_EXPIRES_AT = "expiresAt"

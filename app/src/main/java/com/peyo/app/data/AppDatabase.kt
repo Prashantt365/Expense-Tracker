@@ -10,9 +10,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 @Database(
     entities = [
         Expense::class, Category::class, Person::class, ExpenseSplit::class, Attachment::class,
-        SyncConflict::class
+        SyncConflict::class, SharedShare::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -20,6 +20,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun personDao(): PersonDao
     abstract fun syncDao(): SyncDao
+    abstract fun sharedShareDao(): SharedShareDao
 
     companion object {
         val DEFAULT_CATEGORIES = listOf("Food", "Transport", "Bills", "Shopping", "Health", "Other")
@@ -41,7 +42,7 @@ abstract class AppDatabase : RoomDatabase() {
 
         private fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "peyo.db")
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 // Version 1 predates anything worth keeping and never had a migration written for
                 // it. Everything from 2 on carries real history and now migrates properly.
                 .fallbackToDestructiveMigrationFrom(1)
@@ -110,6 +111,37 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE UNIQUE INDEX IF NOT EXISTS `index_sync_conflicts_entity_remoteId` " +
                         "ON `sync_conflicts` (`entity`, `remoteId`)"
+                )
+            }
+        }
+
+        /**
+         * Who paid each expense. Every existing row was paid by me, which is exactly what the
+         * column's null means, so nothing needs backfilling.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `expenses` ADD COLUMN `paidByPersonId` INTEGER")
+            }
+        }
+
+        /**
+         * A mobile number on each person, which is how people are matched to accounts, and a place
+         * for what other accounts have shared with this one.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `people` ADD COLUMN `phone` TEXT NOT NULL DEFAULT ''")
+                // What other accounts have shared with this one, kept for showing offline and for
+                // telling a new share from one already notified.
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `shared_shares` (`splitId` TEXT NOT NULL, " +
+                        "`expenseId` TEXT NOT NULL, `ownerId` TEXT NOT NULL, `ownerName` TEXT NOT NULL, " +
+                        "`ownerPhone` TEXT NOT NULL, `merchant` TEXT NOT NULL, `category` TEXT NOT NULL, " +
+                        "`note` TEXT NOT NULL, `paidAt` INTEGER NOT NULL, `amountPaise` INTEGER NOT NULL, " +
+                        "`currency` TEXT NOT NULL, `iOwe` INTEGER NOT NULL, `settledAt` INTEGER, " +
+                        "`removed` INTEGER NOT NULL, `updatedAt` INTEGER NOT NULL, `notifiedAt` INTEGER, " +
+                        "PRIMARY KEY(`splitId`))"
                 )
             }
         }

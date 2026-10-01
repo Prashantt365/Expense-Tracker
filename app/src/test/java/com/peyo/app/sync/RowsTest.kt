@@ -222,4 +222,39 @@ class RowsTest {
         assertEquals(3, back.sortOrder)
         assertEquals("c1", back.remoteId)
     }
+
+    @Test fun `who paid an expense travels as the payer's remote id`() {
+        val expense = Expense(
+            amountPaise = 90000, category = "Food", note = "", merchant = "Dinner",
+            paidAt = instant, updatedAt = instant, paidByPersonId = 7
+        )
+        val json = Rows.expenseJson(expense, "user", "INR", paidByRemoteId = "person-uuid")
+        assertEquals("person-uuid", json.getString("paid_by"))
+        val back = Rows.expenseFrom(json, localId = 3, syncedAt = instant, paidByPersonId = 7)!!
+        assertEquals(7L, back.paidByPersonId)
+    }
+
+    @Test fun `an expense I paid sends an explicit null payer`() {
+        val expense = Expense(
+            amountPaise = 1000, category = "Food", note = "", merchant = "",
+            paidAt = instant, updatedAt = instant
+        )
+        val json = Rows.expenseJson(expense, "user", "INR")
+        // Sent as null rather than left out, so switching a bill back to "paid by me" reaches
+        // the server instead of the old payer surviving the upsert.
+        assertTrue(json.has("paid_by"))
+        assertTrue(json.isNull("paid_by"))
+    }
+
+    @Test fun `a person's number travels with them`() {
+        val person = Person(name = "Asha", phone = "+919876543210", updatedAt = instant)
+        val json = Rows.personJson(person, "user")
+        assertEquals("+919876543210", json.getString("phone"))
+        assertEquals("+919876543210", Rows.personFrom(json, 1, instant)!!.phone)
+    }
+
+    @Test fun `a person from before numbers existed has none`() {
+        val json = Rows.personJson(Person(name = "Asha", updatedAt = instant), "user").apply { remove("phone") }
+        assertEquals("", Rows.personFrom(json, 1, instant)!!.phone)
+    }
 }

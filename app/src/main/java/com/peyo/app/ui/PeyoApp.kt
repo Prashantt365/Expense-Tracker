@@ -1,7 +1,10 @@
 package com.peyo.app.ui
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.provider.Settings as SystemSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -33,6 +36,7 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -57,6 +61,9 @@ import com.peyo.app.ExpenseViewModel
 import com.peyo.app.LaunchAction
 import com.peyo.app.OcrReceiptParser
 import com.peyo.app.Period
+import com.peyo.app.KnownPerson
+import com.peyo.app.pickableMonths
+import com.peyo.app.sync.Account
 import com.peyo.app.SaveOutcome
 import com.peyo.app.SplitMode
 import com.peyo.app.data.ContactsReader
@@ -65,12 +72,14 @@ import com.peyo.app.data.PersonBalance
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class Screen(val label: String, val title: String, val icon: ImageVector) {
     DASHBOARD("Insights", "Insights", Icons.Default.Insights),
     TRANSACTIONS("Expenses", "Expenses", Icons.AutoMirrored.Filled.ReceiptLong),
-    PEOPLE("People", "Who owes you", Icons.Default.Group),
+    PEOPLE("People", "Balances", Icons.Default.Group),
     SETTINGS("Settings", "Settings", Icons.Default.Settings)
 }
 
@@ -84,12 +93,35 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
     val categories by vm.categories.collectAsStateWithLifecycle()
     val people by vm.people.collectAsStateWithLifecycle()
     val balances by vm.balances.collectAsStateWithLifecycle()
+    val shared by vm.shared.collectAsStateWithLifecycle()
+
+    // Notifications only mean something once there is a number for friends' expenses to find, so
+    // the question waits until then, and is asked once: a refusal is an answer.
+    val notifyPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+    LaunchedEffect(Unit) {
+        vm.refreshShared()
+        if (android.os.Build.VERSION.SDK_INT < 33) return@LaunchedEffect
+        val prefs = context.getSharedPreferences("peyo.settings", android.content.Context.MODE_PRIVATE)
+        val signedInWithNumber = Account(context).stored()?.phone?.isNotBlank() == true
+        val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        if (signedInWithNumber && !granted && !prefs.getBoolean("askedNotifications", false)) {
+            prefs.edit().putBoolean("askedNotifications", true).apply()
+            notifyPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
     val importState by vm.importState.collectAsStateWithLifecycle()
 
     // The tab and the period are saved with the activity; what is open on top of them lives in the
     // ViewModel. Either way a rotation leaves the user where they were.
     var screen by rememberSaveable { mutableStateOf(Screen.DASHBOARD) }
-    var period by rememberSaveable { mutableStateOf(Period.MONTH) }
+    var period by rememberSaveable { mutableStateOf(Period.thisMonth()) }
+    // Read again on every tab change, so signing in or out from Settings shows on return.
+    val firstName = remember(screen) {
+        Account(context).stored()?.name.orEmpty().substringBefore(' ')
+    }
     var addingPerson by rememberSaveable { mutableStateOf(false) }
     var editing by vm.editing
     var fromScreenshot by vm.fromScreenshot
@@ -118,13 +150,27 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
         uri?.let(vm::importFrom)
     }
 
+    var loadingContacts by remember { mutableStateOf(false) }
+
     fun loadContacts() {
+        // A second tap while the phone book is still being read would only start the same work
+        // again behind the first.
+        if (loadingContacts) return
+        loadingContacts = true
         scope.launch {
-            val names = ContactsReader.readNames(context)
-            contactCandidates = ContactImportPlanner.plan(names, people.map { it.name })
+            val contacts = ContactsReader.readContacts(context)
+            val existing = people.map { KnownPerson(it.name, it.phone) }
+            // Checking every contact against every other for duplicates is real work on a phone
+            // book of a thousand names. On the main thread it froze the app for seconds -- long
+            // enough to look as though the import had done nothing, or to be killed as not
+            // responding -- so it runs in the background and the picker opens when it is done.
+            val candidates = withContext(Dispatchers.Default) {
+                ContactImportPlanner.planContacts(contacts, existing)
+            }
+            contactCandidates = candidates
             // Anything flagged as a likely duplicate starts unticked.
-            contactSelection = contactCandidates.orEmpty()
-                .filterNot { it.isFlagged }.map { it.name }.toSet()
+            contactSelection = candidates.filterNot { it.isFlagged }.map { it.name }.toSet()
+            loadingContacts = false
         }
     }
 
@@ -132,7 +178,23 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) loadContacts()
-        else notify("Contacts permission is needed to import names.")
+        else scope.launch {
+            // After a second refusal Android stops showing the prompt at all and answers "denied"
+            // at once, so a tap on From contacts did nothing visible. The only way back from
+            // there is the app's own page in system settings, so the notice offers it.
+            val choice = snackbars.showSnackbar(
+                "Peyo needs access to your contacts to import names.",
+                actionLabel = "Settings",
+                withDismissAction = true
+            )
+            if (choice == SnackbarResult.ActionPerformed) {
+                context.startActivity(
+                    Intent(SystemSettings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        .setData(Uri.fromParts("package", context.packageName, null))
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }
+        }
     }
 
     fun importContacts() {
@@ -244,6 +306,9 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                         Analytics.build(expenses, people, period)
                     },
                     period = period,
+                    months = remember(expenses) { pickableMonths(expenses) },
+                    hasAnyExpenses = expenses.isNotEmpty(),
+                    firstName = firstName,
                     onPeriodChange = { period = it },
                     onSettle = { personId, name ->
                         settling = balances.firstOrNull { it.personId == personId }
@@ -256,6 +321,7 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                 Screen.TRANSACTIONS -> TransactionsScreen(
                     expenses = expenses,
                     categories = categories.map { it.name },
+                    peopleNames = remember(people) { people.associate { it.id to it.name } },
                     onEdit = { details ->
                         editing = ExpenseInput(
                             id = details.expense.id,
@@ -265,9 +331,18 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                             merchant = details.expense.merchant,
                             paidAt = details.expense.paidAt,
                             sourceUri = details.expense.sourceUri,
-                            shares = details.splits
+                            // A bill somebody else paid keeps its splits as my share and theirs,
+                            // which the editor shows as one figure rather than as people tagged.
+                            shares = if (!details.expense.paidByMe) emptyMap()
+                            else details.splits
                                 .filter { it.personId != null && it.deletedAt == null }
                                 .associate { it.personId!! to (it.amountPaise / 100.0).toString() },
+                            paidBy = details.expense.paidByPersonId,
+                            myShare = if (details.expense.paidByMe) ""
+                            else details.splits
+                                .filter { it.personId == null && it.deletedAt == null }
+                                .sumOf { it.amountPaise }
+                                .let { (it / 100.0).toString() },
                             existingAttachments = details.attachments
                         )
                         fromScreenshot = false
@@ -282,6 +357,12 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                 Screen.PEOPLE -> PeopleScreen(
                     vm = vm,
                     balances = balances,
+                    shared = shared,
+                    onMarkShared = { split ->
+                        vm.markSharedSettled(split) { problem ->
+                            notify(problem ?: "Marked as settled. They'll see it on their phone.")
+                        }
+                    },
                     onAddPeople = { addingPerson = true },
                     modifier = content
                 )
@@ -338,8 +419,8 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
 
     settling?.let { balance -> SettleDialog(vm, balance) { settling = null } }
 
-    if (addingPerson) NameDialog("New person", "", { addingPerson = false }) { name ->
-        vm.addPerson(name)
+    if (addingPerson) PersonDialog("New person", "", "", { addingPerson = false }) { name, phone ->
+        vm.addPerson(name, phone)
         addingPerson = false
         notify("Added $name.")
     }
@@ -370,7 +451,8 @@ fun PeyoApp(action: LaunchAction, actionToken: Int, vm: ExpenseViewModel = viewM
                 else contactSelection + name
             },
             onConfirm = {
-                vm.addPeople(contactSelection.toList()) { added ->
+                val phones = candidates.associate { it.name to it.phone.orEmpty() }
+                vm.addPeople(contactSelection.map { it to phones[it].orEmpty() }) { added ->
                     notify("Added $added ${if (added == 1) "person" else "people"}.")
                 }
                 contactCandidates = null

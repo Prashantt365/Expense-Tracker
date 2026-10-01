@@ -157,4 +157,87 @@ class ExpenseDaoTest {
         assertEquals(1, details.attachments.size)
         assertEquals(20000, details.outstandingPaise)
     }
+
+    /** A bill [payer] paid for me, of which [mine] was my share. */
+    private suspend fun paidFor(payer: Long, total: Long, mine: Long): Long {
+        val id = dao.insert(expense(amountPaise = total).copy(paidByPersonId = payer))
+        dao.insertSplits(
+            listOf(
+                ExpenseSplit(expenseId = id, personId = null, amountPaise = mine),
+                ExpenseSplit(expenseId = id, personId = payer, amountPaise = total - mine)
+            )
+        )
+        return id
+    }
+
+    /** A bill I paid, of which [theirs] is what [person] owes me. */
+    private suspend fun paidByMe(person: Long, total: Long, theirs: Long): Long {
+        val id = dao.insert(expense(amountPaise = total))
+        dao.insertSplits(
+            listOf(
+                ExpenseSplit(expenseId = id, personId = person, amountPaise = theirs),
+                ExpenseSplit(expenseId = id, personId = null, amountPaise = total - theirs)
+            )
+        )
+        return id
+    }
+
+    @Test fun aBillSomeoneElsePaidIsWhatIOweThem() = runBlocking {
+        val asha = people.insert(Person(name = "Asha"))
+        paidFor(asha, total = 90000, mine = 30000)
+
+        val balance = dao.observeBalances().first().single { it.personId == asha }
+        // Their own 600 is theirs; only my 300 is a debt, and it runs from me to them.
+        assertEquals(-30000, balance.owedPaise)
+        assertEquals(0, balance.owedToMePaise)
+        assertEquals(30000, balance.iOwePaise)
+
+        val open = dao.observeOutstanding(asha).first().single()
+        assertEquals(30000, open.amountPaise)
+        assertEquals(true, open.iOwe)
+    }
+
+    @Test fun moneyRunningBothWaysIsNetted() = runBlocking {
+        val asha = people.insert(Person(name = "Asha"))
+        paidByMe(asha, total = 100000, theirs = 50000)
+        paidFor(asha, total = 60000, mine = 20000)
+
+        val balance = dao.observeBalances().first().single { it.personId == asha }
+        assertEquals(50000, balance.owedToMePaise)
+        assertEquals(20000, balance.iOwePaise)
+        assertEquals(30000, balance.owedPaise)
+        assertEquals(2, dao.observeOutstanding(asha).first().size)
+        assertEquals(2, people.outstandingCount(asha))
+    }
+
+    @Test fun settlingUpSquaresBothDirectionsAndReopeningBringsBothBack() = runBlocking {
+        val asha = people.insert(Person(name = "Asha"))
+        val rahul = people.insert(Person(name = "Rahul"))
+        paidByMe(asha, total = 100000, theirs = 50000)
+        paidFor(asha, total = 60000, mine = 20000)
+        // Somebody else's balance must be left exactly as it was.
+        paidFor(rahul, total = 40000, mine = 10000)
+
+        dao.settleEverything(asha, now)
+        val after = dao.observeBalances().first().associateBy { it.personId }
+        assertEquals(0, after.getValue(asha).owedPaise)
+        assertEquals(0, dao.observeOutstanding(asha).first().size)
+        assertEquals(-10000, after.getValue(rahul).owedPaise)
+
+        dao.reopenEverything(asha, now + 1)
+        assertEquals(30000, dao.observeBalances().first().single { it.personId == asha }.owedPaise)
+    }
+
+    /**
+     * The payer's own share sits on the bill as a split with their id. On a bill they paid that
+     * must never read as them owing me, or every bill a friend covered would show as money owed.
+     */
+    @Test fun thePayersOwnShareIsNotADebt() = runBlocking {
+        val asha = people.insert(Person(name = "Asha"))
+        paidFor(asha, total = 90000, mine = 0)
+        val balance = dao.observeBalances().first().single { it.personId == asha }
+        assertEquals(0, balance.owedPaise)
+        assertEquals(0, dao.observeOutstanding(asha).first().size)
+        assertEquals(0, dao.observeAll().first().single().outstandingPaise)
+    }
 }

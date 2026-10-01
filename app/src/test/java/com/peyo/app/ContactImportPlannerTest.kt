@@ -68,4 +68,43 @@ class ContactImportPlannerTest {
     @Test fun `an empty phone book plans nothing`() {
         assertTrue(ContactImportPlanner.plan(emptyList(), listOf("Rahul")).isEmpty())
     }
+
+    @Test fun `a contact's number comes through with them`() {
+        val plan = ContactImportPlanner.planContacts(
+            listOf(com.peyo.app.data.PhoneContact("Asha Rao", "+919876543210")),
+            emptyList()
+        )
+        assertEquals("+919876543210", plan.single().phone)
+    }
+
+    @Test fun `one number under two names is one person`() {
+        val plan = ContactImportPlanner.planContacts(
+            listOf(
+                com.peyo.app.data.PhoneContact("Asha Rao", "+919876543210"),
+                com.peyo.app.data.PhoneContact("Ashu", "+919876543210")
+            ),
+            emptyList()
+        )
+        assertEquals(1, plan.count { !it.isFlagged })
+        assertEquals(1, plan.count { it.duplicateOfEarlierContact })
+    }
+
+    @Test fun `somebody already here under their number is flagged whatever the name`() {
+        val plan = ContactImportPlanner.planContacts(
+            listOf(com.peyo.app.data.PhoneContact("A. Rao (office)", "+919876543210")),
+            listOf(KnownPerson("Asha", "+919876543210"))
+        )
+        assertEquals("Asha", plan.single().existingPersonName)
+    }
+
+    @Test fun `of two identical names the one with a number is kept`() {
+        val plan = ContactImportPlanner.planContacts(
+            listOf(
+                com.peyo.app.data.PhoneContact("Asha Rao", null),
+                com.peyo.app.data.PhoneContact("Asha Rao", "+919876543210")
+            ),
+            emptyList()
+        )
+        assertEquals("+919876543210", plan.single().phone)
+    }
 }

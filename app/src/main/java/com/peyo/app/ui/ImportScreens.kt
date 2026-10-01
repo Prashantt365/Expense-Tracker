@@ -228,6 +228,13 @@ fun ContactPickerScreen(
                     PersonAvatar(candidate.name, size = 32.dp)
                     Column(Modifier.weight(1f).padding(start = 8.dp)) {
                         Text(candidate.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        candidate.phone?.let {
+                            Text(
+                                com.peyo.app.PhoneNumbers.display(it),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         val reason = when {
                             candidate.existingPersonName != null ->
                                 "already in your people as ${candidate.existingPersonName}"

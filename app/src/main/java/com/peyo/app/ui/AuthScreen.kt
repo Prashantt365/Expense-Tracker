@@ -48,10 +48,12 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import com.peyo.app.PhoneNumbers
 import com.peyo.app.R
 import com.peyo.app.sync.Account
 import com.peyo.app.sync.Response
@@ -206,6 +208,8 @@ fun AuthScreen(
 ) {
     val scope = rememberCoroutineScope()
     var mode by remember { mutableStateOf(initialMode) }
+    var name by remember { mutableStateOf("") }
+    var phone by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var revealed by remember { mutableStateOf(false) }
@@ -214,7 +218,9 @@ fun AuthScreen(
     var confirmationSentTo by remember { mutableStateOf<String?>(null) }
 
     val emailLooksReal = email.trim().let { it.contains('@') && it.substringAfterLast('@').contains('.') }
-    val canSubmit = !busy && emailLooksReal && password.length >= MIN_PASSWORD
+    val normalizedPhone = PhoneNumbers.normalize(phone)
+    val canSubmit = !busy && emailLooksReal && password.length >= MIN_PASSWORD &&
+        (mode == AuthMode.SIGN_IN || (name.isNotBlank() && normalizedPhone != null))
 
     fun submit() {
         error = null
@@ -227,7 +233,7 @@ fun AuthScreen(
                     is Response.Offline -> error = "No connection. You can keep using the app offline."
                 }
 
-                AuthMode.SIGN_UP -> when (val result = account.signUp(email, password)) {
+                AuthMode.SIGN_UP -> when (val result = account.signUp(name, normalizedPhone.orEmpty(), email, password)) {
                     is SignUpResult.SignedIn -> onSignedIn()
                     is SignUpResult.NeedsEmailConfirmation -> confirmationSentTo = result.email
                     is SignUpResult.Failed -> error = result.message
@@ -291,6 +297,45 @@ fun AuthScreen(
             Spacer(Modifier.height(8.dp))
 
             if (!Supabase.isConfigured) NotConfiguredCard()
+
+            // Asked only when registering: signing in brings the name back from the account.
+            if (mode == AuthMode.SIGN_UP) OutlinedTextField(
+                name,
+                { name = it; error = null },
+                label = { Text("Your name") },
+                singleLine = true,
+                enabled = !busy,
+                shape = MaterialTheme.shapes.medium,
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Words,
+                    imeAction = ImeAction.Next
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            // The number is what lets other people's expenses find this account, so it is asked
+            // for up front, and checked as it is typed rather than when the form is sent.
+            if (mode == AuthMode.SIGN_UP) OutlinedTextField(
+                phone,
+                { phone = it; error = null },
+                label = { Text("Mobile number") },
+                placeholder = { Text("98765 43210") },
+                singleLine = true,
+                enabled = !busy,
+                isError = phone.isNotBlank() && normalizedPhone == null,
+                supportingText = {
+                    Text(
+                        if (phone.isNotBlank() && normalizedPhone == null) PhoneNumbers.INVALID_MESSAGE
+                        else "Friends who add this number see what they split with you."
+                    )
+                },
+                shape = MaterialTheme.shapes.medium,
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Phone,
+                    imeAction = ImeAction.Next
+                ),
+                modifier = Modifier.fillMaxWidth()
+            )
 
             OutlinedTextField(
                 email,

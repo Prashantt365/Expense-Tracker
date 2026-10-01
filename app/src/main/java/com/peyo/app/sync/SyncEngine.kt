@@ -471,7 +471,8 @@ class SyncEngine(
         val localId = local?.localId ?: 0L
         when (table) {
             SyncedTable.EXPENSE -> {
-                val expense = Rows.expenseFrom(row, localId, now) ?: return false
+                val paidBy = payerRef(row) ?: return false
+                val expense = Rows.expenseFrom(row, localId, now, paidBy.id) ?: return false
                 // A pulled row carries no screenshot, so an existing local one is kept rather than
                 // blanked: the attachment never left this phone and is still perfectly good.
                 val keepSource = (local as? Expense)?.sourceUri
@@ -498,6 +499,14 @@ class SyncEngine(
         return true
     }
 
+    /** Who paid a pulled expense, as a local row number; null, rather than a ref, if not here yet. */
+    private class PayerRef(val id: Long?)
+
+    private suspend fun payerRef(row: JSONObject): PayerRef? {
+        val remote = row.stringOrNull("paid_by") ?: return PayerRef(null)
+        return dao.personByRemoteId(remote)?.let { PayerRef(it.id) }
+    }
+
     /** A pulled split's expense and person as local row numbers, or null if either is not here yet. */
     private suspend fun splitRefs(row: JSONObject): Pair<Long, Long?>? {
         val expenseRemote = row.stringOrNull("expense_id") ?: return null
@@ -510,7 +519,7 @@ class SyncEngine(
     /** Whether the pulled [row] says the same thing as [local], read into local terms first. */
     private suspend fun holdsSame(table: SyncedTable, row: JSONObject, local: Synced): Boolean {
         val remote: Synced = when (table) {
-            SyncedTable.EXPENSE -> Rows.expenseFrom(row, 0L, 0L)
+            SyncedTable.EXPENSE -> payerRef(row)?.let { Rows.expenseFrom(row, 0L, 0L, it.id) }
             SyncedTable.PERSON -> Rows.personFrom(row, 0L, 0L)
             SyncedTable.CATEGORY -> Rows.categoryFrom(row, 0L, 0L)
             SyncedTable.SPLIT -> splitRefs(row)?.let { (expenseId, personId) ->
@@ -528,13 +537,17 @@ class SyncEngine(
     private suspend fun pushTable(table: SyncedTable, link: Link, userId: String): Response<Int> {
         val currency = AppCurrency.code
         val expenseIds = if (table == SyncedTable.SPLIT) dao.expenseIds().associate { it.id to it.remoteId } else emptyMap()
-        val personIds = if (table == SyncedTable.SPLIT) dao.personIds().associate { it.id to it.remoteId } else emptyMap()
+        val personIds = if (table == SyncedTable.SPLIT || table == SyncedTable.EXPENSE) {
+            dao.personIds().associate { it.id to it.remoteId }
+        } else emptyMap()
 
         // Rows with an open conflict are not among these: the queries hold them back until the
         // user has chosen, so the server's side of a disagreement is never overwritten unasked.
         val pending: List<Outgoing> = when (table) {
-            SyncedTable.EXPENSE -> dao.expensesToPush().map {
-                Outgoing(it.remoteId, it.updatedAt, Rows.expenseJson(it, userId, currency))
+            SyncedTable.EXPENSE -> dao.expensesToPush().mapNotNull {
+                // Like a split's person: a payer the server has not heard of would be refused.
+                val payer = it.paidByPersonId?.let { id -> personIds[id] ?: return@mapNotNull null }
+                Outgoing(it.remoteId, it.updatedAt, Rows.expenseJson(it, userId, currency, payer))
             }
 
             SyncedTable.PERSON -> dao.peopleToPush().map {

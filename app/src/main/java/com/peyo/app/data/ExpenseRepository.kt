@@ -202,23 +202,43 @@ class ExpenseRepository(
 
     suspend fun categoryUsage(name: String) = categoryDao.expenseCount(name)
 
-    suspend fun addPerson(name: String): Long {
+    /** [phone] is E.164 or blank. */
+    suspend fun addPerson(name: String, phone: String = ""): Long {
         val trimmed = name.trim()
         if (trimmed.isEmpty()) return 0L
         val active = personDao.activeByName(trimmed)
-        if (active != null) return active.id
+        if (active != null) {
+            // Adding somebody already here with a number they did not have yet fills it in.
+            if (phone.isNotBlank() && active.phone.isBlank()) {
+                personDao.update(active.copy(phone = phone, updatedAt = stamp(), syncedAt = null))
+            }
+            return active.id
+        }
         val buried = personDao.deletedByName(trimmed)
         if (buried != null) {
-            personDao.update(buried.copy(deletedAt = null, updatedAt = stamp(), syncedAt = null))
+            personDao.update(
+                buried.copy(
+                    deletedAt = null,
+                    phone = phone.ifBlank { buried.phone },
+                    updatedAt = stamp(),
+                    syncedAt = null
+                )
+            )
             return buried.id
         }
-        return personDao.insert(Person(name = trimmed))
+        return personDao.insert(Person(name = trimmed, phone = phone))
     }
 
     /** Returns false, and changes nothing, when somebody else already has that name. See [renameCategory]. */
-    suspend fun renamePerson(person: Person, newName: String): Boolean {
+    suspend fun renamePerson(person: Person, newName: String, phone: String = person.phone): Boolean {
         val trimmed = newName.trim()
-        if (trimmed.isEmpty() || trimmed == person.name) return true
+        if (trimmed.isEmpty()) return true
+        if (trimmed == person.name) {
+            if (phone != person.phone) {
+                personDao.update(person.copy(phone = phone, updatedAt = stamp(), syncedAt = null))
+            }
+            return true
+        }
         val holder = personDao.activeByName(trimmed)
         if (holder != null && holder.id != person.id) return false
         val now = stamp()
@@ -226,7 +246,7 @@ class ExpenseRepository(
             personDao.deletedByName(trimmed)?.let {
                 personDao.update(it.copy(name = buriedName(it.name, it.remoteId), updatedAt = now, syncedAt = null))
             }
-            personDao.update(person.copy(name = trimmed, updatedAt = now, syncedAt = null))
+            personDao.update(person.copy(name = trimmed, phone = phone, updatedAt = now, syncedAt = null))
         }
         return true
     }
@@ -249,16 +269,24 @@ class ExpenseRepository(
         return written
     }
 
-    suspend fun addPeople(names: List<String>): Int {
+    /** Each name with its E.164 number, or blank. */
+    suspend fun addPeople(people: List<Pair<String, String>>): Int {
         var added = 0
-        names.forEach { name ->
+        people.forEach { (name, phone) ->
             val trimmed = name.trim()
             if (trimmed.isEmpty()) return@forEach
             val buried = personDao.deletedByName(trimmed)
             if (buried != null) {
-                personDao.update(buried.copy(deletedAt = null, updatedAt = stamp(), syncedAt = null))
+                personDao.update(
+                    buried.copy(
+                        deletedAt = null,
+                        phone = phone.ifBlank { buried.phone },
+                        updatedAt = stamp(),
+                        syncedAt = null
+                    )
+                )
                 added++
-            } else if (personDao.insert(Person(name = trimmed)) != -1L) {
+            } else if (personDao.insert(Person(name = trimmed, phone = phone)) != -1L) {
                 // insert ignores on conflict, so a -1 means the name was already taken.
                 added++
             }

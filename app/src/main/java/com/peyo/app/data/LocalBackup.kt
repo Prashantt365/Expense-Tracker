@@ -76,7 +76,9 @@ object LocalBackup {
             .put("currency", AppCurrency.code)
             .put("categories", JSONArray().apply { categories.forEach { put(it.toJson()) } })
             .put("people", JSONArray().apply { people.forEach { put(it.toJson()) } })
-            .put("expenses", JSONArray().apply { expenses.forEach { put(it.toJson()) } })
+            .put("expenses", JSONArray().apply {
+                expenses.forEach { put(it.toJson(it.paidByPersonId?.let(personRemote::get))) }
+            })
             .put("splits", JSONArray().apply {
                 splits.forEach { split ->
                     // A split whose expense is not in the file would import as an orphan, and a
@@ -145,6 +147,7 @@ object LocalBackup {
             val incoming = Person(
                 name = name,
                 note = row.optString("note"),
+                phone = row.optString("phone"),
                 remoteId = remoteId,
                 updatedAt = row.optLong("updatedAt"),
                 deletedAt = row.longOrNull("deletedAt"),
@@ -163,7 +166,16 @@ object LocalBackup {
 
         root.optJSONArray("expenses")?.forEachObject { row ->
             val remoteId = row.optString("remoteId").ifBlank { return@forEachObject }
+            // A backup from before payers existed has no such key, and every one of its expenses
+            // was paid by me, which is what null means.
+            val payerRemote = row.stringOrNull("paidByRemoteId")
+            val paidBy = payerRemote?.let { remote ->
+                dao.personByRemoteId(remote)?.id ?: run {
+                    imported = imported.copy(skipped = imported.skipped + 1); return@forEachObject
+                }
+            }
             val incoming = Expense(
+                paidByPersonId = paidBy,
                 amountPaise = row.optLong("amountPaise"),
                 category = row.optString("category"),
                 note = row.optString("note"),
@@ -229,8 +241,9 @@ object LocalBackup {
 
     // --- row shapes ---
 
-    private fun Expense.toJson() = JSONObject()
+    private fun Expense.toJson(paidByRemoteId: String?) = JSONObject()
         .put("remoteId", remoteId)
+        .putOrNull("paidByRemoteId", paidByRemoteId)
         .put("amountPaise", amountPaise)
         .put("category", category)
         .put("note", note)
@@ -243,6 +256,7 @@ object LocalBackup {
         .put("remoteId", remoteId)
         .put("name", name)
         .put("note", note)
+        .put("phone", phone)
         .put("updatedAt", updatedAt)
         .putOrNull("deletedAt", deletedAt)
 

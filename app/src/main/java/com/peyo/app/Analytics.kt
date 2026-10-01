@@ -11,10 +11,45 @@ import java.time.ZoneId
 import java.time.format.TextStyle
 import java.util.Locale
 
-enum class Period(val label: String) {
-    MONTH("This month"),
-    YEAR("This year"),
-    ALL("All time")
+/**
+ * The stretch of time the dashboard reports on: one calendar month, the current year, or
+ * everything. Serializable so the selection survives the activity being recreated.
+ */
+sealed interface Period : java.io.Serializable {
+    data class Month(val month: YearMonth) : Period
+    data object Year : Period
+    data object All : Period
+
+    companion object {
+        fun thisMonth(today: LocalDate = LocalDate.now()): Period = Month(YearMonth.from(today))
+    }
+}
+
+/** "This month" for the current month, otherwise the month by name: "August 2026". */
+fun Period.label(today: LocalDate = LocalDate.now()): String = when (this) {
+    is Period.Month -> if (month == YearMonth.from(today)) "This month" else monthName(month)
+    Period.Year -> "This year"
+    Period.All -> "All time"
+}
+
+fun monthName(month: YearMonth): String =
+    month.month.getDisplayName(TextStyle.FULL, Locale.getDefault()) + " " + month.year
+
+/**
+ * The months the dashboard offers, newest first: every one from the earliest expense to now, gaps
+ * included so the list reads as a calendar. The current month is always there, even when empty.
+ */
+fun pickableMonths(
+    expenses: List<ExpenseDetails>,
+    zone: ZoneId = ZoneId.systemDefault(),
+    today: LocalDate = LocalDate.now(zone)
+): List<YearMonth> {
+    val current = YearMonth.from(today)
+    val earliest = expenses.minOfOrNull { it.expense.paidAt }
+        ?.let { YearMonth.from(Instant.ofEpochMilli(it).atZone(zone)) }
+        ?.takeIf { it < current }
+        ?: current
+    return generateSequence(current) { it.minusMonths(1) }.takeWhile { it >= earliest }.toList()
 }
 
 data class MonthPoint(
@@ -56,6 +91,8 @@ data class AnalyticsReport(
     val settledPaise: Long,
     /** What remains unrecovered: the effective amount I have spent on other people. */
     val outstandingPaise: Long,
+    /** My unsettled shares of bills other people paid for me in the period. */
+    val iOwePaise: Long,
     val expenseCount: Int,
     val dailyAveragePaise: Long,
     val largest: ExpenseDetails?,
@@ -65,10 +102,14 @@ data class AnalyticsReport(
     val people: List<PersonAnalytics>,
     val weekdays: List<WeekdayPoint>,
     /**
-     * My spend so far this month against the same days of last month, as a fraction. Null when
-     * those days of last month are empty.
+     * My spend in the month in view against the month before it, as a fraction. For the current
+     * month only the same days of last month are compared. Null when there is nothing to compare.
      */
-    val monthOverMonth: Float?
+    val monthOverMonth: Float?,
+    /** The month [monthOverMonth] measures: the selected month, or the current one otherwise. */
+    val comparedMonth: YearMonth,
+    /** Whether [comparedMonth] is still in progress, so the comparison is month to date. */
+    val comparedMonthToDate: Boolean
 ) {
     val grossPaise: Long get() = minePaise + onOthersPaise
     val hasData: Boolean get() = expenseCount > 0
@@ -96,6 +137,9 @@ object Analytics {
         val onOthersPaise = inPeriod.sumOf { it.othersPaise() }
         val settledPaise = inPeriod.sumOf { it.settledPaise() }
         val outstandingPaise = inPeriod.sumOf { it.outstandingPaise }
+        val iOwePaise = inPeriod.sumOf { it.iOwePaise }
+        val current = YearMonth.from(today)
+        val compared = (period as? Period.Month)?.month ?: current
 
         return AnalyticsReport(
             period = period,
@@ -103,6 +147,7 @@ object Analytics {
             onOthersPaise = onOthersPaise,
             settledPaise = settledPaise,
             outstandingPaise = outstandingPaise,
+            iOwePaise = iOwePaise,
             expenseCount = inPeriod.size,
             dailyAveragePaise = dailyAverage(minePaise, inPeriod, period, zone, today),
             largest = inPeriod.maxByOrNull { it.expense.amountPaise },
@@ -110,7 +155,9 @@ object Analytics {
             categories = categorySlices(inPeriod),
             people = peopleAnalytics(inPeriod, people),
             weekdays = weekdayPattern(inPeriod, zone),
-            monthOverMonth = monthOverMonth(expenses, zone, today)
+            monthOverMonth = monthOverMonth(expenses, zone, today, compared),
+            comparedMonth = compared,
+            comparedMonthToDate = compared == current
         )
     }
 
@@ -144,7 +191,9 @@ object Analytics {
 
     private fun peopleAnalytics(rows: List<ExpenseDetails>, people: List<Person>): List<PersonAnalytics> {
         val names = people.associate { it.id to it.name }
-        val shares = rows.flatMap { details ->
+        // What each person costs me only arises on bills I paid. On one they paid, their share is
+        // their own spending, not something I fronted.
+        val shares = rows.filter { it.expense.paidByMe }.flatMap { details ->
             details.liveSplits.filter { it.personId != null }.map { details to it }
         }
         return shares.groupBy { (_, split) -> split.personId!! }
@@ -175,22 +224,31 @@ object Analytics {
     }
 
     /**
-     * Month to date against the same stretch of last month. Setting a partial month against a
-     * whole one would show a steep fall every morning of the 3rd. On the last day of the month the
-     * whole of last month is used, so a 30-day month is not denied the 31st it is being compared to.
+     * The month in view against the month before it. For the current month that is month to date
+     * against the same stretch of last month: setting a partial month against a whole one would
+     * show a steep fall every morning of the 3rd. On the last day of the month the whole of last
+     * month is used, so a 30-day month is not denied the 31st it is being compared to. A month
+     * already over is set whole against the whole of the one before.
      */
-    private fun monthOverMonth(all: List<ExpenseDetails>, zone: ZoneId, today: LocalDate): Float? {
-        val current = YearMonth.from(today)
+    private fun monthOverMonth(
+        all: List<ExpenseDetails>,
+        zone: ZoneId,
+        today: LocalDate,
+        month: YearMonth
+    ): Float? {
+        val current = month
         val previous = current.minusMonths(1)
-        val cutoff = if (today.dayOfMonth == current.lengthOfMonth()) previous.lengthOfMonth()
-        else minOf(today.dayOfMonth, previous.lengthOfMonth())
+        val inProgress = current == YearMonth.from(today)
+        val throughDay = if (inProgress) today.dayOfMonth else current.lengthOfMonth()
+        val cutoff = if (throughDay == current.lengthOfMonth()) previous.lengthOfMonth()
+        else minOf(throughDay, previous.lengthOfMonth())
         fun spent(month: YearMonth, lastDay: Int) = all.filter { details ->
             val date = details.expense.paidAt.toLocalDate(zone)
             YearMonth.from(date) == month && date.dayOfMonth <= lastDay
         }.sumOf { it.minePaise() }
         val before = spent(previous, cutoff)
         if (before == 0L) return null
-        val now = spent(current, today.dayOfMonth)
+        val now = spent(current, throughDay)
         return (now - before).toFloat() / before
     }
 
@@ -203,11 +261,13 @@ object Analytics {
     ): Long {
         if (rows.isEmpty()) return 0
         val days = when (period) {
-            Period.MONTH -> today.dayOfMonth.toLong()
-            Period.YEAR -> today.dayOfYear.toLong()
+            is Period.Month ->
+                if (period.month == YearMonth.from(today)) today.dayOfMonth.toLong()
+                else period.month.lengthOfMonth().toLong()
+            Period.Year -> today.dayOfYear.toLong()
             // Span from the first recorded expense, so an old history is not flattered by a
             // denominator that only counts this year.
-            Period.ALL -> {
+            Period.All -> {
                 val first = rows.minOf { it.expense.paidAt }.toLocalDate(zone)
                 java.time.temporal.ChronoUnit.DAYS.between(first, today) + 1
             }
@@ -218,9 +278,9 @@ object Analytics {
     private fun Period.contains(millis: Long, zone: ZoneId, today: LocalDate): Boolean {
         val date = millis.toLocalDate(zone)
         return when (this) {
-            Period.MONTH -> YearMonth.from(date) == YearMonth.from(today)
-            Period.YEAR -> date.year == today.year
-            Period.ALL -> true
+            is Period.Month -> YearMonth.from(date) == month
+            Period.Year -> date.year == today.year
+            Period.All -> true
         }
     }
 
@@ -235,15 +295,22 @@ object Analytics {
 private val ExpenseDetails.liveSplits: List<ExpenseSplit>
     get() = splits.filter { it.deletedAt == null }
 
-/** My own share: what is left after everyone else's shares are taken out. */
+/**
+ * My own share: what is left after everyone else's shares are taken out. On a bill somebody else
+ * paid it is still my spending -- I owe it to them rather than having paid it out -- so it counts
+ * the same way either way.
+ */
 fun ExpenseDetails.minePaise(): Long {
     val live = liveSplits
     return if (live.isEmpty()) expense.amountPaise
     else live.filter { it.personId == null }.sumOf { it.amountPaise }
 }
 
+/** What I fronted for other people. Nothing, on a bill somebody else paid. */
 fun ExpenseDetails.othersPaise(): Long =
-    liveSplits.filter { it.personId != null }.sumOf { it.amountPaise }
+    if (!expense.paidByMe) 0L
+    else liveSplits.filter { it.personId != null }.sumOf { it.amountPaise }
 
 fun ExpenseDetails.settledPaise(): Long =
-    liveSplits.filter { it.personId != null && it.settledAt != null }.sumOf { it.amountPaise }
+    if (!expense.paidByMe) 0L
+    else liveSplits.filter { it.personId != null && it.settledAt != null }.sumOf { it.amountPaise }

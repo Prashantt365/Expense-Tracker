@@ -75,15 +75,30 @@ interface ExpenseDao {
     )
     suspend fun settleShare(splitId: Long, now: Long)
 
+    /**
+     * Squares up with one person in both directions at once: what they owe me on bills I paid
+     * and what I owe them on bills they paid. Settling is paying the difference, so afterwards
+     * neither side is left open.
+     */
     @Query(
-        "UPDATE expense_splits SET settledAt = :now, updatedAt = :now, syncedAt = NULL " +
-            "WHERE personId = :personId AND settledAt IS NULL AND deletedAt IS NULL"
+        """
+        UPDATE expense_splits SET settledAt = :now, updatedAt = :now, syncedAt = NULL
+        WHERE settledAt IS NULL AND deletedAt IS NULL AND id IN (
+            SELECT s.id FROM expense_splits s JOIN expenses e ON e.id = s.expenseId
+            WHERE e.deletedAt IS NULL AND ((s.personId = :personId AND e.paidByPersonId IS NULL) OR (s.personId IS NULL AND e.paidByPersonId = :personId))
+        )
+        """
     )
     suspend fun settleEverything(personId: Long, now: Long)
 
     @Query(
-        "UPDATE expense_splits SET settledAt = NULL, updatedAt = :now, syncedAt = NULL " +
-            "WHERE personId = :personId AND settledAt IS NOT NULL AND deletedAt IS NULL"
+        """
+        UPDATE expense_splits SET settledAt = NULL, updatedAt = :now, syncedAt = NULL
+        WHERE settledAt IS NOT NULL AND deletedAt IS NULL AND id IN (
+            SELECT s.id FROM expense_splits s JOIN expenses e ON e.id = s.expenseId
+            WHERE e.deletedAt IS NULL AND ((s.personId = :personId AND e.paidByPersonId IS NULL) OR (s.personId IS NULL AND e.paidByPersonId = :personId))
+        )
+        """
     )
     suspend fun reopenEverything(personId: Long, now: Long)
 
@@ -97,21 +112,32 @@ interface ExpenseDao {
     suspend fun deleteAttachments(ids: List<Long>)
 
     /**
-     * A split whose expense has been deleted is excluded by the EXISTS clause rather than by a
-     * join, so that a person with no splits at all still comes back with a zero balance.
+     * Every person with where I stand with them, netted: their shares of bills I paid, less my
+     * shares of bills they paid. The sums are subqueries rather than a join, so that a person with
+     * no splits at all still comes back with a zero balance, and a split whose expense has been
+     * deleted counts for nothing.
      */
     @Query(
         """
-        SELECT p.id AS personId, p.name AS name,
-               COALESCE(SUM(CASE WHEN s.settledAt IS NULL THEN s.amountPaise ELSE 0 END), 0) AS owedPaise
-        FROM people p
-        LEFT JOIN expense_splits s
-               ON s.personId = p.id
-              AND s.deletedAt IS NULL
-              AND EXISTS (SELECT 1 FROM expenses e WHERE e.id = s.expenseId AND e.deletedAt IS NULL)
-        WHERE p.deletedAt IS NULL
-        GROUP BY p.id, p.name
-        ORDER BY owedPaise DESC, p.name
+        SELECT personId, name, owedToMePaise - iOwePaise AS owedPaise, owedToMePaise, iOwePaise
+        FROM (
+            SELECT p.id AS personId, p.name AS name,
+                   COALESCE((
+                       SELECT SUM(s.amountPaise) FROM expense_splits s
+                       JOIN expenses e ON e.id = s.expenseId
+                       WHERE s.personId = p.id AND e.paidByPersonId IS NULL
+                         AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+                   ), 0) AS owedToMePaise,
+                   COALESCE((
+                       SELECT SUM(s.amountPaise) FROM expense_splits s
+                       JOIN expenses e ON e.id = s.expenseId
+                       WHERE s.personId IS NULL AND e.paidByPersonId = p.id
+                         AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+                   ), 0) AS iOwePaise
+            FROM people p
+            WHERE p.deletedAt IS NULL
+        )
+        ORDER BY owedPaise DESC, name
         """
     )
     fun observeBalances(): Flow<List<PersonBalance>>
@@ -140,16 +166,25 @@ interface ExpenseDao {
 
     @Query(
         """
-        SELECT p.id AS personId, p.name AS name,
-               COALESCE(SUM(CASE WHEN s.settledAt IS NULL THEN s.amountPaise ELSE 0 END), 0) AS owedPaise
-        FROM people p
-        LEFT JOIN expense_splits s
-               ON s.personId = p.id
-              AND s.deletedAt IS NULL
-              AND EXISTS (SELECT 1 FROM expenses e WHERE e.id = s.expenseId AND e.deletedAt IS NULL)
-        WHERE p.deletedAt IS NULL
-        GROUP BY p.id, p.name
-        ORDER BY owedPaise DESC, p.name
+        SELECT personId, name, owedToMePaise - iOwePaise AS owedPaise, owedToMePaise, iOwePaise
+        FROM (
+            SELECT p.id AS personId, p.name AS name,
+                   COALESCE((
+                       SELECT SUM(s.amountPaise) FROM expense_splits s
+                       JOIN expenses e ON e.id = s.expenseId
+                       WHERE s.personId = p.id AND e.paidByPersonId IS NULL
+                         AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+                   ), 0) AS owedToMePaise,
+                   COALESCE((
+                       SELECT SUM(s.amountPaise) FROM expense_splits s
+                       JOIN expenses e ON e.id = s.expenseId
+                       WHERE s.personId IS NULL AND e.paidByPersonId = p.id
+                         AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+                   ), 0) AS iOwePaise
+            FROM people p
+            WHERE p.deletedAt IS NULL
+        )
+        ORDER BY owedPaise DESC, name
         """
     )
     suspend fun balancesNow(): List<PersonBalance>
@@ -157,10 +192,13 @@ interface ExpenseDao {
     @Query(
         """
         SELECT s.id AS splitId, s.expenseId AS expenseId, s.amountPaise AS amountPaise,
-               e.merchant AS merchant, e.category AS category, e.paidAt AS paidAt
+               e.merchant AS merchant, e.category AS category, e.paidAt AS paidAt,
+               e.paidByPersonId IS NOT NULL AS iOwe
         FROM expense_splits s
         JOIN expenses e ON e.id = s.expenseId
-        WHERE s.personId = :personId AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+        WHERE s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+          AND s.amountPaise > 0
+          AND ((s.personId = :personId AND e.paidByPersonId IS NULL) OR (s.personId IS NULL AND e.paidByPersonId = :personId))
         ORDER BY e.paidAt DESC
         """
     )
@@ -217,7 +255,9 @@ interface PersonDao {
         """
         SELECT COUNT(*) FROM expense_splits s
         JOIN expenses e ON e.id = s.expenseId
-        WHERE s.personId = :id AND s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+        WHERE s.settledAt IS NULL AND s.deletedAt IS NULL AND e.deletedAt IS NULL
+          AND s.amountPaise > 0
+          AND ((s.personId = :id AND e.paidByPersonId IS NULL) OR (s.personId IS NULL AND e.paidByPersonId = :id))
         """
     )
     suspend fun outstandingCount(id: Long): Int

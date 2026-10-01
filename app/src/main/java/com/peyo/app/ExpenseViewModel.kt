@@ -17,6 +17,7 @@ import com.peyo.app.data.PdfTextReader
 import com.peyo.app.data.Person
 import com.peyo.app.data.PersonBalance
 import com.peyo.app.sync.BackupSettings
+import com.peyo.app.sync.SharedLedger
 import com.peyo.app.sync.SyncEngine
 import com.peyo.app.sync.SyncOutcome
 import com.peyo.app.widget.PeyoWidgets
@@ -51,6 +52,13 @@ data class ExpenseInput(
      * My own share is the remainder and is never typed.
      */
     val shares: Map<Long, String> = emptyMap(),
+    /**
+     * Who paid: null for me, or the person who paid it for me. When somebody else paid, [shares]
+     * and [splitMode] are set aside and [myShare] is what I owe them.
+     */
+    val paidBy: Long? = null,
+    /** My share of a bill somebody else paid, as typed. Blank means all of it. */
+    val myShare: String = "",
     val newAttachments: List<Uri> = emptyList(),
     val existingAttachments: List<Attachment> = emptyList(),
     val removedAttachmentIds: List<Long> = emptyList()
@@ -84,6 +92,27 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val balances = repository.balances.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val syncEngine = SyncEngine(application, repository.syncDao)
+
+    // --- Shared by other users ---------------------------------------------------------------
+
+    private val ledger = SharedLedger(application)
+
+    /** What other Peyo users have recorded against this account's number. */
+    val shared = com.peyo.app.data.AppDatabase.get(application).sharedShareDao().observeVisible()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    fun refreshShared() = viewModelScope.launch { ledger.refresh() }
+
+    /** [onDone] gets null on success, or the reason it did not go through. */
+    fun markSharedSettled(splitId: String, onDone: (String?) -> Unit) = viewModelScope.launch {
+        onDone(
+            when (val result = ledger.markSettled(splitId)) {
+                is com.peyo.app.sync.Response.Ok -> null
+                is com.peyo.app.sync.Response.Rejected -> result.message
+                is com.peyo.app.sync.Response.Offline -> "No connection. Try again when you are online."
+            }
+        )
+    }
 
     // --- What the top level has open --------------------------------------------------------
     //
@@ -202,6 +231,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 try {
                     _lastSync.value = block()
                     _lastSyncAt.value = syncEngine.lastSyncAt
+                    // Whatever friends have shared comes along with every backup, best effort.
+                    ledger.refresh()
                 } finally {
                     _syncing.value = false
                 }
@@ -280,10 +311,25 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val totalPaise = SplitCalculator.parsePaise(input.amount)
             ?: return onResult(SaveOutcome.Invalid("Enter an amount like 250 or 250.50"))
 
-        val split = SplitCalculator.compute(totalPaise, input.splitMode, input.shares)
-        if (split is SplitResult.Invalid) return onResult(SaveOutcome.Invalid(split.message))
-        val shares = (split as SplitResult.Valid).shares.map {
-            ExpenseSplit(expenseId = input.id, personId = it.personId, amountPaise = it.amountPaise)
+        val payer = input.paidBy
+        val shares = if (payer != null) {
+            // Somebody else paid. My share is what I owe them and the rest is theirs; both are
+            // stored, so the parts still add up to the bill.
+            val mine = if (input.myShare.isBlank()) totalPaise
+            else SplitCalculator.parsePaise(input.myShare)
+                ?: return onResult(SaveOutcome.Invalid("Check the share you entered for yourself"))
+            if (mine < 0) return onResult(SaveOutcome.Invalid("Your share cannot be negative"))
+            if (mine > totalPaise) return onResult(SaveOutcome.Invalid("Your share is more than the total"))
+            listOf(
+                ExpenseSplit(expenseId = input.id, personId = null, amountPaise = mine),
+                ExpenseSplit(expenseId = input.id, personId = payer, amountPaise = totalPaise - mine)
+            )
+        } else {
+            val split = SplitCalculator.compute(totalPaise, input.splitMode, input.shares)
+            if (split is SplitResult.Invalid) return onResult(SaveOutcome.Invalid(split.message))
+            (split as SplitResult.Valid).shares.map {
+                ExpenseSplit(expenseId = input.id, personId = it.personId, amountPaise = it.amountPaise)
+            }
         }
 
         val expense = Expense(
@@ -293,7 +339,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             note = input.note.trim(),
             merchant = input.merchant.trim(),
             paidAt = input.paidAt,
-            sourceUri = input.sourceUri
+            sourceUri = input.sourceUri,
+            paidByPersonId = payer
         )
 
         viewModelScope.launch {
@@ -324,19 +371,21 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             if (used > 0) onBlocked(used) else repository.deleteCategory(category)
         }
 
-    fun addPerson(name: String) = viewModelScope.launch { if (name.isNotBlank()) repository.addPerson(name) }
+    fun addPerson(name: String, phone: String = "") =
+        viewModelScope.launch { if (name.isNotBlank()) repository.addPerson(name, phone) }
     suspend fun addPersonInline(name: String): Long = repository.addPerson(name)
     /** [onTaken] is called, and nothing is renamed, when somebody else already has the name. */
-    fun renamePerson(person: Person, newName: String, onTaken: () -> Unit) =
-        viewModelScope.launch { if (!repository.renamePerson(person, newName)) onTaken() }
+    fun renamePerson(person: Person, newName: String, phone: String = person.phone, onTaken: () -> Unit) =
+        viewModelScope.launch { if (!repository.renamePerson(person, newName, phone)) onTaken() }
 
     fun deletePerson(person: Person, onBlocked: (Int) -> Unit) = viewModelScope.launch {
         val owing = repository.personOutstandingCount(person.id)
         if (owing > 0) onBlocked(owing) else repository.deletePerson(person)
     }
 
-    fun addPeople(names: List<String>, onDone: (Int) -> Unit) = viewModelScope.launch {
-        onDone(repository.addPeople(names))
+    /** Each name with its E.164 number, or blank. */
+    fun addPeople(people: List<Pair<String, String>>, onDone: (Int) -> Unit) = viewModelScope.launch {
+        onDone(repository.addPeople(people))
     }
 
     // --- Statement import -------------------------------------------------------------------

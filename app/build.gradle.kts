@@ -14,8 +14,8 @@ android {
         applicationId = "com.peyo.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 4
-        versionName = "2.2"
+        versionCode = 5
+        versionName = "2.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Supabase, read from local.properties so the repo never carries a project of its own.
@@ -102,6 +102,10 @@ dependencies {
     // a RemoteViewsFactory, which is what keeps the widget's figures and the app's in step.
     implementation("androidx.glance:glance-appwidget:1.2.0")
     implementation("androidx.glance:glance-material3:1.2.0")
+    // The background check for expenses other users share with this account. Glance already
+    // brings WorkManager in; this names it, at the same version, since the app now schedules its
+    // own work too.
+    implementation("androidx.work:work-runtime-ktx:2.7.1")
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
     testImplementation("junit:junit:4.13.2")

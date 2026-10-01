@@ -9,6 +9,7 @@
     sync that everything had already been pulled, so a new phone quietly showed almost nothing.
   - attachments/ holds receipt screenshots, which the privacy policy says stay on this phone, and
     which no row would point at once restored without the database.
+  - peyo.onboarding records that the feature tour was seen, so a reinstall shows it again.
   Appearance, currency and backup preferences in peyo.settings are harmless and still restore.
 -->
 <full-backup-content>
@@ -17,5 +18,6 @@
     <exclude domain="database" path="peyo.db-wal" />
     <exclude domain="sharedpref" path="peyo.account.xml" />
     <exclude domain="sharedpref" path="peyo.sync.xml" />
+    <exclude domain="sharedpref" path="peyo.onboarding.xml" />
     <exclude domain="file" path="attachments/" />
 </full-backup-content>

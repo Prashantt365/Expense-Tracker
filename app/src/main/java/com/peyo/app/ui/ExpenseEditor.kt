@@ -1,6 +1,14 @@
 package com.peyo.app.ui
 
+import android.content.ActivityNotFoundException
+import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.PhotoLibrary
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -43,6 +51,7 @@ import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -123,9 +132,42 @@ fun ExpenseEditor(
         }
     }
 
+    fun attach(uris: List<Uri>) {
+        if (uris.isNotEmpty()) draft = draft.copy(newAttachments = draft.newAttachments + uris)
+    }
     val picker = rememberLauncherForActivityResult(
         ActivityResultContracts.PickMultipleVisualMedia(5)
-    ) { uris -> if (uris.isNotEmpty()) draft = draft.copy(newAttachments = draft.newAttachments + uris) }
+    ) { uris -> attach(uris) }
+    // The system file browser, for a bill saved somewhere other than the photo library -- a
+    // download, a file shared from chat, a folder on a card.
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenMultipleDocuments()
+    ) { uris -> attach(uris) }
+    // Photographing a paper bill. The camera app writes straight into a file this app owns; the
+    // Uri is kept across a rotation, because the camera app routinely rotates the screen under us
+    // and the photo would otherwise land in a file nothing remembers.
+    val context = LocalContext.current
+    var cameraTarget by rememberSaveable { mutableStateOf<String?>(null) }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { taken ->
+        val target = cameraTarget?.let(Uri::parse)
+        if (taken && target != null) attach(listOf(target))
+        cameraTarget = null
+    }
+    val hasCamera = remember {
+        context.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+    }
+    var cameraMissing by remember { mutableStateOf(false) }
+    fun takePhoto() {
+        val target = CameraFiles.newPhotoUri(context)
+        cameraTarget = target.toString()
+        try {
+            camera.launch(target)
+        } catch (_: ActivityNotFoundException) {
+            cameraTarget = null
+            cameraMissing = true
+        }
+    }
+    var choosingSource by remember { mutableStateOf(false) }
 
     // Preview the split live, using the same calculator that will run on save, so what the summary
     // shows and what gets stored can never drift apart.
@@ -243,20 +285,26 @@ fun ExpenseEditor(
                     }
                 )
             }
-            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Box(modifier = Modifier.weight(1f)) {
-                    if (categories.isEmpty()) Text(
-                        "No categories yet. Add some under Settings.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    ) else FlowChips(categories.map { it.name }, draft.category) {
-                        categoryChosen = true
-                        draft = draft.copy(category = it)
-                    }
-                }
-                IconButton(onClick = { showAddCategoryDialog = true }) {
-                    Icon(Icons.Default.Add, "Add Category")
-                }
+            // A labelled chip at the end of the list rather than a bare plus out to one side, which
+            // read as an unexplained icon and sat a long way from the chips it adds to.
+            val addCategoryChip: @Composable () -> Unit = {
+                AssistChip(
+                    onClick = { showAddCategoryDialog = true },
+                    label = { Text("Add category") },
+                    leadingIcon = { Icon(Icons.Default.Add, null, Modifier.size(16.dp)) },
+                    shape = MaterialTheme.shapes.small
+                )
+            }
+            if (categories.isEmpty()) {
+                Text(
+                    "No categories yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                addCategoryChip()
+            } else FlowChips(categories.map { it.name }, draft.category, trailing = addCategoryChip) {
+                categoryChosen = true
+                draft = draft.copy(category = it)
             }
 
             Section("Attachments")
@@ -286,120 +334,166 @@ fun ExpenseEditor(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedButton({
-                picker.launch(
-                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                )
-            }) {
-                Icon(Icons.Default.AddAPhoto, null, Modifier.size(18.dp))
-                Gap()
-                Text("Add attachment")
-            }
-
-            Section("Split with people")
-            if (people.isEmpty()) Text(
-                "Add people under Settings to split an expense.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (people.isNotEmpty()) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    SplitMode.entries.forEachIndexed { index, mode ->
-                        SegmentedButton(
-                            selected = draft.splitMode == mode,
-                            onClick = {
-                                // Rupees and percentages are different units, so carrying
-                                // the typed figures across would turn "420" into 420%.
-                                // Equal ignores them, so switching via Equal keeps them.
-                                val unitsChanged = mode != draft.splitMode &&
-                                    mode != SplitMode.EQUAL &&
-                                    draft.splitMode != SplitMode.EQUAL
-                                draft = draft.copy(
-                                    splitMode = mode,
-                                    shares = if (unitsChanged) draft.shares.mapValues { "" }
-                                    else draft.shares
-                                )
-                            },
-                            shape = SegmentedButtonDefaults.itemShape(index, SplitMode.entries.size),
-                            label = { Text(mode.label) }
-                        )
-                    }
-                }
-                Text(
-                    when (draft.splitMode) {
-                        SplitMode.CUSTOM -> "Type each person's share. Leave one blank to leave them out."
-                        SplitMode.EQUAL -> "Divided evenly across everyone added, plus you."
-                        SplitMode.PERCENT -> "Type each person's percentage. Yours is whatever is left."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            draft.shares.forEach { (personId, share) ->
-                val person = people.firstOrNull { it.id == personId } ?: return@forEach
-                ShareRow(
-                    name = person.name,
-                    value = share,
-                    mode = draft.splitMode,
-                    computed = computedShares[personId],
-                    onChange = { draft = draft.copy(shares = draft.shares + (personId to it)) },
-                    onRemove = { draft = draft.copy(shares = draft.shares - personId) }
-                )
-            }
-            var newPersonName by remember { mutableStateOf("") }
             Box {
-                OutlinedButton({ showPersonMenu = true }) {
-                    Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
+                OutlinedButton({ choosingSource = true }) {
+                    Icon(Icons.Default.AddAPhoto, null, Modifier.size(18.dp))
                     Gap()
-                    Text("Add person")
+                    Text("Add attachment")
                 }
-                DropdownMenu(showPersonMenu, { showPersonMenu = false }) {
-                    val available = people.filter { it.id !in draft.shares.keys }
-                    available.forEach { person ->
-                        DropdownMenuItem(
-                            text = { Text(person.name) },
-                            leadingIcon = { PersonAvatar(person.name, size = 28.dp) },
-                            onClick = {
-                                draft = draft.copy(shares = draft.shares + (person.id to ""))
-                                showPersonMenu = false
-                            }
-                        )
-                    }
-                    if (available.isNotEmpty()) {
-                        HorizontalDivider()
-                    }
+                DropdownMenu(choosingSource, { choosingSource = false }) {
+                    if (hasCamera) DropdownMenuItem(
+                        text = { Text("Take a photo") },
+                        leadingIcon = { Icon(Icons.Default.PhotoCamera, null) },
+                        onClick = { choosingSource = false; takePhoto() }
+                    )
                     DropdownMenuItem(
-                        text = {
-                            OutlinedTextField(
-                                value = newPersonName,
-                                onValueChange = { newPersonName = it },
-                                placeholder = { Text("New person name...") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                trailingIcon = {
-                                    if (newPersonName.isNotBlank()) {
-                                        IconButton(onClick = {
-                                            scope.launch {
-                                                val newId = onAddPersonInline(newPersonName)
-                                                if (newId != 0L) {
-                                                    draft = draft.copy(shares = draft.shares + (newId to ""))
-                                                }
-                                                newPersonName = ""
-                                                showPersonMenu = false
-                                            }
-                                        }) {
-                                            Icon(Icons.Default.Check, "Add")
-                                        }
-                                    }
-                                }
+                        text = { Text("Choose from gallery") },
+                        leadingIcon = { Icon(Icons.Default.PhotoLibrary, null) },
+                        onClick = {
+                            choosingSource = false
+                            picker.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                             )
-                        },
-                        onClick = { /* Do nothing */ }
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Browse files") },
+                        leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
+                        onClick = {
+                            choosingSource = false
+                            // Images only: attachments are shown as pictures everywhere they
+                            // appear, and a PDF or a document would be a blank tile.
+                            filePicker.launch(arrayOf("image/*"))
+                        }
                     )
                 }
             }
-            if (draft.shares.isNotEmpty()) {
-                SplitSummary(totalPaise, assignedPaise, myShare, splitProblem)
+            if (cameraMissing) Text(
+                "No camera app is available on this phone. Choose a photo instead.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+
+            Section("Paid by")
+            PaidByPicker(people, draft.paidBy) { payer ->
+                // Switching who paid changes what the shares mean, so neither carries across.
+                draft = draft.copy(paidBy = payer, shares = emptyMap(), myShare = "")
+            }
+
+            val payer = people.firstOrNull { it.id == draft.paidBy }
+            if (payer != null) {
+                YourShareSection(
+                    payerName = payer.name,
+                    totalPaise = totalPaise,
+                    myShare = draft.myShare,
+                    onChange = { draft = draft.copy(myShare = it) }
+                )
+            } else {
+                Section("Split with people")
+                if (people.isEmpty()) Text(
+                    "Add people under Settings to split an expense.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                if (people.isNotEmpty()) {
+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+                        SplitMode.entries.forEachIndexed { index, mode ->
+                            SegmentedButton(
+                                selected = draft.splitMode == mode,
+                                onClick = {
+                                    // Rupees and percentages are different units, so carrying
+                                    // the typed figures across would turn "420" into 420%.
+                                    // Equal ignores them, so switching via Equal keeps them.
+                                    val unitsChanged = mode != draft.splitMode &&
+                                        mode != SplitMode.EQUAL &&
+                                        draft.splitMode != SplitMode.EQUAL
+                                    draft = draft.copy(
+                                        splitMode = mode,
+                                        shares = if (unitsChanged) draft.shares.mapValues { "" }
+                                        else draft.shares
+                                    )
+                                },
+                                shape = SegmentedButtonDefaults.itemShape(index, SplitMode.entries.size),
+                                label = { Text(mode.label) }
+                            )
+                        }
+                    }
+                    Text(
+                        when (draft.splitMode) {
+                            SplitMode.CUSTOM -> "Type each person's share. Leave one blank to leave them out."
+                            SplitMode.EQUAL -> "Divided evenly across everyone added, plus you."
+                            SplitMode.PERCENT -> "Type each person's percentage. Yours is whatever is left."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                draft.shares.forEach { (personId, share) ->
+                    val person = people.firstOrNull { it.id == personId } ?: return@forEach
+                    ShareRow(
+                        name = person.name,
+                        value = share,
+                        mode = draft.splitMode,
+                        computed = computedShares[personId],
+                        onChange = { draft = draft.copy(shares = draft.shares + (personId to it)) },
+                        onRemove = { draft = draft.copy(shares = draft.shares - personId) }
+                    )
+                }
+                var newPersonName by remember { mutableStateOf("") }
+                Box {
+                    OutlinedButton({ showPersonMenu = true }) {
+                        Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
+                        Gap()
+                        Text("Add person")
+                    }
+                    DropdownMenu(showPersonMenu, { showPersonMenu = false }) {
+                        val available = people.filter { it.id !in draft.shares.keys }
+                        available.forEach { person ->
+                            DropdownMenuItem(
+                                text = { Text(person.name) },
+                                leadingIcon = { PersonAvatar(person.name, size = 28.dp) },
+                                onClick = {
+                                    draft = draft.copy(shares = draft.shares + (person.id to ""))
+                                    showPersonMenu = false
+                                }
+                            )
+                        }
+                        if (available.isNotEmpty()) {
+                            HorizontalDivider()
+                        }
+                        DropdownMenuItem(
+                            text = {
+                                OutlinedTextField(
+                                    value = newPersonName,
+                                    onValueChange = { newPersonName = it },
+                                    placeholder = { Text("New person name...") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    trailingIcon = {
+                                        if (newPersonName.isNotBlank()) {
+                                            IconButton(onClick = {
+                                                scope.launch {
+                                                    val newId = onAddPersonInline(newPersonName)
+                                                    if (newId != 0L) {
+                                                        draft = draft.copy(shares = draft.shares + (newId to ""))
+                                                    }
+                                                    newPersonName = ""
+                                                    showPersonMenu = false
+                                                }
+                                            }) {
+                                                Icon(Icons.Default.Check, "Add")
+                                            }
+                                        }
+                                    }
+                                )
+                            },
+                            onClick = { /* Do nothing */ }
+                        )
+                    }
+                }
+                if (draft.shares.isNotEmpty()) {
+                    SplitSummary(totalPaise, assignedPaise, myShare, splitProblem)
+                }
             }
             Spacer(Modifier.height(16.dp))
         }
@@ -555,6 +649,112 @@ private fun SplitSummary(totalPaise: Long, assignedPaise: Long, myShare: Long, p
             SummaryLine("Your share", if (over) "—" else money(myShare), bold = true)
             if (over) Text(
                 problem ?: "Shares add up to more than the total.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error
+            )
+        }
+    }
+}
+
+/**
+ * Who paid the bill: me, or one of the people. A bill somebody else paid is how a debt the other
+ * way round gets recorded -- they covered it, and my share of it is what I owe them.
+ */
+@Composable
+private fun PaidByPicker(people: List<Person>, paidBy: Long?, onPick: (Long?) -> Unit) {
+    if (people.isEmpty()) {
+        Text(
+            "You paid this. Add people under Settings to record a bill someone else paid for you.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        return
+    }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        item {
+            FilterChip(
+                selected = paidBy == null,
+                onClick = { onPick(null) },
+                label = { Text("You") },
+                leadingIcon = if (paidBy == null) {
+                    { Icon(Icons.Default.Check, null, Modifier.size(16.dp)) }
+                } else null
+            )
+        }
+        items(people.size) { index ->
+            val person = people[index]
+            FilterChip(
+                selected = paidBy == person.id,
+                onClick = { onPick(person.id) },
+                label = { Text(person.name, maxLines = 1) },
+                leadingIcon = { PersonAvatar(person.name, size = 22.dp) }
+            )
+        }
+    }
+}
+
+/** My part of a bill somebody else paid, which is what I owe them. */
+@Composable
+private fun YourShareSection(
+    payerName: String,
+    totalPaise: Long,
+    myShare: String,
+    onChange: (String) -> Unit
+) {
+    val mine = if (myShare.isBlank()) totalPaise else SplitCalculator.parsePaise(myShare)
+    val problem = when {
+        mine == null -> "Check the share you entered."
+        mine < 0 -> "Your share cannot be negative."
+        mine > totalPaise -> "Your share is more than the total."
+        else -> null
+    }
+
+    Section("Your share")
+    Text(
+        "How much of this bill was yours. Leave it blank if $payerName paid for all of it on " +
+            "your behalf.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    OutlinedTextField(
+        myShare,
+        onChange,
+        label = { Text("Your share") },
+        placeholder = { Text("All of it") },
+        prefix = { Text(AppCurrency.currency.symbol + " ") },
+        singleLine = true,
+        isError = problem != null && myShare.isNotBlank(),
+        shape = MaterialTheme.shapes.medium,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+        modifier = Modifier.fillMaxWidth()
+    )
+    // The common splits, one tap each, worked out from the total as it stands.
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        listOf("All" to 1, "Half" to 2, "A third" to 3, "A quarter" to 4).forEach { (label, ways) ->
+            AssistChip(
+                onClick = {
+                    onChange(
+                        if (ways == 1 || totalPaise <= 0) ""
+                        else String.format(java.util.Locale.US, "%.2f", totalPaise / ways / 100.0)
+                    )
+                },
+                label = { Text(label) },
+                shape = MaterialTheme.shapes.small
+            )
+        }
+    }
+    val over = problem != null
+    PeyoCard(
+        container = if (over) MaterialTheme.colorScheme.errorContainer
+        else MaterialTheme.colorScheme.surfaceContainer
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            SummaryLine("Total, paid by $payerName", money(totalPaise))
+            SummaryLine("$payerName's own share", if (over) "—" else money(totalPaise - (mine ?: 0)))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            SummaryLine("You owe $payerName", if (over) "—" else money(mine ?: 0), bold = true)
+            if (over) Text(
+                problem,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error
             )

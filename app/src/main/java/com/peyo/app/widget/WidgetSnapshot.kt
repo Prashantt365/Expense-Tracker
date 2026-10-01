@@ -75,7 +75,7 @@ object WidgetData {
             // The same arithmetic the Insights headline uses: my own share, with everything
             // assigned to other people taken out.
             monthPaise = thisMonth.sumOf { it.minePaise() },
-            owedPaise = balances.sumOf { it.owedPaise },
+            owedPaise = balances.sumOf { maxOf(it.owedPaise, 0L) },
             expenseCount = thisMonth.size,
             recent = dao.recentDetails(RECENT_SHOWN).map { details ->
                 RecentExpense(

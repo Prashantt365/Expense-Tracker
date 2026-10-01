@@ -43,6 +43,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.peyo.app.ExpenseViewModel
 import com.peyo.app.data.PersonBalance
+import com.peyo.app.data.SharedShare
+import androidx.compose.runtime.LaunchedEffect
 import com.peyo.app.ui.theme.MoneyTextStyle
 
 /**
@@ -56,12 +58,17 @@ import com.peyo.app.ui.theme.MoneyTextStyle
 fun PeopleScreen(
     vm: ExpenseViewModel,
     balances: List<PersonBalance>,
+    /** What other Peyo users have recorded against my number. */
+    shared: List<SharedShare> = emptyList(),
+    onMarkShared: (splitId: String) -> Unit = {},
     onAddPeople: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var settling by remember { mutableStateOf<PersonBalance?>(null) }
+    var viewingShared by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { vm.refreshShared() }
 
-    if (balances.isEmpty()) {
+    if (balances.isEmpty() && shared.none { it.open }) {
         Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             EmptyState(
                 icon = Icons.Default.Group,
@@ -80,17 +87,20 @@ fun PeopleScreen(
         return
     }
 
-    val totalOwed = balances.sumOf { it.owedPaise }
+    // Each balance is already netted: what they owe me less what I owe them.
     val owing = balances.filter { it.owedPaise > 0 }
-    val settled = balances.filter { it.owedPaise <= 0 }
-    val largest = owing.maxOfOrNull { it.owedPaise }?.takeIf { it > 0 } ?: 1L
+    val owed = balances.filter { it.owedPaise < 0 }
+    val square = balances.filter { it.owedPaise == 0L }
+    val totalOwed = owing.sumOf { it.owedPaise }
+    val totalIOwe = owed.sumOf { -it.owedPaise }
+    val largest = balances.maxOfOrNull { kotlin.math.abs(it.owedPaise) }?.takeIf { it > 0 } ?: 1L
 
     LazyColumn(
         modifier.fillMaxSize().padding(horizontal = 16.dp),
         contentPadding = PaddingValues(top = 8.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        item { OwedHeroCard(totalOwed, owing.size, balances.size) }
+        item { OwedHeroCard(totalOwed, totalIOwe, owing.size, owed.size) }
 
         if (owing.isNotEmpty()) {
             item { Section("Owes you") }
@@ -98,9 +108,24 @@ fun PeopleScreen(
                 BalanceRow(balance, largest) { settling = balance }
             }
         }
-        if (settled.isNotEmpty()) {
+        if (owed.isNotEmpty()) {
+            item { Section("You owe") }
+            items(owed, key = { it.personId }) { balance ->
+                BalanceRow(balance, largest) { settling = balance }
+            }
+        }
+        // Kept apart from my own people: these were recorded on somebody else's phone, against my
+        // number, and the most I can do with them is say they are paid.
+        val sharedOpen = shared.filter { it.open }.groupBy { it.ownerId }
+        if (sharedOpen.isNotEmpty()) {
+            item { Section("Shared with you") }
+            items(sharedOpen.entries.toList(), key = { "shared-" + it.key }) { (ownerId, rows) ->
+                SharedOwnerRow(rows) { viewingShared = ownerId }
+            }
+        }
+        if (square.isNotEmpty()) {
             item { Section("All square") }
-            items(settled, key = { it.personId }) { balance ->
+            items(square, key = { it.personId }) { balance ->
                 BalanceRow(balance, largest) { settling = balance }
             }
         }
@@ -108,10 +133,120 @@ fun PeopleScreen(
     }
 
     settling?.let { balance -> SettleDialog(vm, balance) { settling = null } }
+    viewingShared?.let { ownerId ->
+        val rows = shared.filter { it.ownerId == ownerId && it.open }
+        if (rows.isEmpty()) viewingShared = null
+        else SharedDialog(rows, onMark = onMarkShared) { viewingShared = null }
+    }
 }
 
+/** One other user, and the net of what they have recorded between us. */
 @Composable
-private fun OwedHeroCard(totalOwed: Long, owingCount: Int, peopleCount: Int) {
+private fun SharedOwnerRow(rows: List<SharedShare>, onClick: () -> Unit) {
+    val owner = rows.first().ownerName
+    val iOwe = rows.filter { it.iOwe }.sumOf { it.amountPaise }
+    val theyOwe = rows.filterNot { it.iOwe }.sumOf { it.amountPaise }
+    val net = theyOwe - iOwe
+    val tone = if (net < 0) MaterialTheme.colorScheme.error else chartPalette.others
+    PeyoCard(onClick = onClick) {
+        Row(
+            Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            PersonAvatar(owner, size = 42.dp)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(owner, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                Text(
+                    when {
+                        net < 0 -> "says you owe them"
+                        net > 0 -> "says they owe you"
+                        else -> "you are even"
+                    } + " • ${rows.size} item${if (rows.size == 1) "" else "s"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
+            Text(
+                sharedAmount(kotlin.math.abs(net), rows.first().currency),
+                style = MaterialTheme.typography.titleMedium.merge(MoneyTextStyle),
+                fontWeight = FontWeight.Bold,
+                color = tone
+            )
+        }
+    }
+}
+
+/**
+ * The open items one other user has recorded with me. Each can be marked settled, which tells
+ * them on their next sync; I cannot change the amounts, which are theirs.
+ */
+@Composable
+private fun SharedDialog(rows: List<SharedShare>, onMark: (String) -> Unit, onDismiss: () -> Unit) {
+    val owner = rows.first().ownerName
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = { PersonAvatar(owner, size = 44.dp) },
+        title = { Text(owner, textAlign = TextAlign.Center) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    "Recorded on $owner's phone. Mark an item settled once it is paid and " +
+                        "$owner will see it.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Column(
+                    Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                ) {
+                    rows.forEachIndexed { index, share ->
+                        if (index > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Row(
+                            Modifier.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CategoryBadge(share.category.ifBlank { "Other" }, size = 32.dp)
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    share.merchant.ifBlank { share.category.ifBlank { "Expense" } },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1
+                                )
+                                Text(
+                                    (if (share.iOwe) "you owe" else "they owe you") + " • " +
+                                        shortDate(share.paidAt),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = if (share.iOwe) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text(
+                                sharedAmount(share.amountPaise, share.currency),
+                                style = MaterialTheme.typography.bodyMedium.merge(MoneyTextStyle),
+                                fontWeight = FontWeight.Medium
+                            )
+                            TextButton({ onMark(share.splitId) }) {
+                                Text(if (share.iOwe) "Paid" else "Received")
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onDismiss) { Text("Close") } }
+    )
+}
+
+/** An amount in the currency its owner recorded it in, which need not be this phone's. */
+private fun sharedAmount(minor: Long, currency: String): String =
+    if (currency == com.peyo.app.AppCurrency.code) money(minor)
+    else "$currency " + "%,.2f".format(minor / 100.0)
+
+@Composable
+private fun OwedHeroCard(totalOwed: Long, totalIOwe: Long, owingCount: Int, owedCount: Int) {
     val scheme = MaterialTheme.colorScheme
     Box(
         Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).background(
@@ -135,13 +270,40 @@ private fun OwedHeroCard(totalOwed: Long, owingCount: Int, peopleCount: Int) {
             )
             Text(
                 when {
-                    totalOwed <= 0 -> "Everybody is square with you."
-                    owingCount == 1 -> "1 of $peopleCount people still owes you."
-                    else -> "$owingCount of $peopleCount people still owe you."
+                    totalOwed <= 0 && totalIOwe <= 0 -> "Everybody is square with you."
+                    owingCount == 0 -> "Nobody owes you anything right now."
+                    owingCount == 1 -> "1 person still owes you."
+                    else -> "$owingCount people still owe you."
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = scheme.onPrimaryContainer.copy(alpha = 0.75f)
             )
+            // What I owe sits on the same card, so the two directions are read together.
+            if (totalIOwe > 0) {
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(color = scheme.onPrimaryContainer.copy(alpha = 0.15f))
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            "You owe",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = scheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        )
+                        Text(
+                            if (owedCount == 1) "to 1 person" else "to $owedCount people",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onPrimaryContainer.copy(alpha = 0.75f)
+                        )
+                    }
+                    Text(
+                        money(totalIOwe),
+                        style = MaterialTheme.typography.titleLarge.merge(MoneyTextStyle),
+                        fontWeight = FontWeight.Bold,
+                        color = scheme.error
+                    )
+                }
+            }
         }
     }
 }
@@ -149,7 +311,13 @@ private fun OwedHeroCard(totalOwed: Long, owingCount: Int, peopleCount: Int) {
 @Composable
 private fun BalanceRow(balance: PersonBalance, largestPaise: Long, onClick: () -> Unit) {
     val palette = chartPalette
-    val owes = balance.owedPaise > 0
+    val scheme = MaterialTheme.colorScheme
+    val net = balance.owedPaise
+    val tone = when {
+        net > 0 -> palette.others
+        net < 0 -> scheme.error
+        else -> scheme.onSurfaceVariant
+    }
     PeyoCard(onClick = onClick) {
         Row(
             Modifier.padding(14.dp),
@@ -159,15 +327,20 @@ private fun BalanceRow(balance: PersonBalance, largestPaise: Long, onClick: () -
             PersonAvatar(balance.name, size = 42.dp)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(balance.name, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                if (owes) {
+                if (net != 0L) {
                     Text(
-                        "owes you",
+                        // When money runs both ways the net hides how it was reached, so both
+                        // sides are spelled out under it.
+                        if (balance.owedToMePaise > 0 && balance.iOwePaise > 0) {
+                            "owes you ${money(balance.owedToMePaise)} • you owe ${money(balance.iOwePaise)}"
+                        } else if (net > 0) "owes you" else "you owe ${balance.name}",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = scheme.onSurfaceVariant,
+                        maxLines = 1
                     )
                     ProgressTrack(
-                        balance.owedPaise.toFloat() / largestPaise,
-                        palette.others,
+                        kotlin.math.abs(net).toFloat() / largestPaise,
+                        tone,
                         height = 5.dp
                     )
                 } else {
@@ -190,16 +363,20 @@ private fun BalanceRow(balance: PersonBalance, largestPaise: Long, onClick: () -
                 }
             }
             MoneyText(
-                balance.owedPaise,
+                kotlin.math.abs(net),
                 style = MaterialTheme.typography.titleMedium,
-                color = if (owes) palette.others else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = tone,
                 weight = FontWeight.Bold
             )
         }
     }
 }
 
-/** One person's unsettled shares, each clearable on its own or all at once. */
+/**
+ * Everything still open between me and one person, in both directions, each clearable on its own
+ * or all at once. Settling all squares both sides together: settling up is one payment of the
+ * difference, whichever way it goes.
+ */
 @Composable
 fun SettleDialog(vm: ExpenseViewModel, balance: PersonBalance, onDismiss: () -> Unit) {
     val shares by vm.outstandingFor(balance.personId).collectAsState(initial = emptyList())
@@ -212,9 +389,23 @@ fun SettleDialog(vm: ExpenseViewModel, balance: PersonBalance, onDismiss: () -> 
                 if (shares.isEmpty()) {
                     Text("Nothing outstanding.", textAlign = TextAlign.Center)
                 } else {
+                    val theyOwe = shares.filterNot { it.iOwe }.sumOf { it.amountPaise }
+                    val iOwe = shares.filter { it.iOwe }.sumOf { it.amountPaise }
+                    val net = theyOwe - iOwe
                     Text(
-                        "${shares.size} unsettled share${if (shares.size == 1) "" else "s"}, " +
-                            "${money(shares.sumOf { it.amountPaise })} in total",
+                        when {
+                            net > 0 -> "${balance.name} owes you ${money(net)}"
+                            net < 0 -> "You owe ${balance.name} ${money(-net)}"
+                            else -> "You are even"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = if (net < 0) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onSurface
+                    )
+                    if (theyOwe > 0 && iOwe > 0) Text(
+                        "They owe you ${money(theyOwe)} and you owe them ${money(iOwe)}, so " +
+                            "settling up is one payment of the difference.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -243,9 +434,11 @@ fun SettleDialog(vm: ExpenseViewModel, balance: PersonBalance, onDismiss: () -> 
                                         maxLines = 1
                                     )
                                     Text(
-                                        shortDate(share.paidAt),
+                                        (if (share.iOwe) "they paid • you owe" else "you paid • they owe") +
+                                            " • " + shortDate(share.paidAt),
                                         style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        color = if (share.iOwe) MaterialTheme.colorScheme.error
+                                        else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
                                 MoneyText(share.amountPaise)
@@ -259,7 +452,7 @@ fun SettleDialog(vm: ExpenseViewModel, balance: PersonBalance, onDismiss: () -> 
         confirmButton = {
             if (shares.isNotEmpty()) Button({
                 vm.settleEverything(balance.personId); onDismiss()
-            }) { Text("Settle all") } else TextButton(onDismiss) { Text("Close") }
+            }) { Text("Settle up") } else TextButton(onDismiss) { Text("Close") }
         },
         dismissButton = {
             if (shares.isNotEmpty()) TextButton(onDismiss) { Text("Close") }

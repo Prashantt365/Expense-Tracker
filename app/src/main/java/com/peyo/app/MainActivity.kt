@@ -6,17 +6,27 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.IntentCompat
 import com.peyo.app.sync.Account
 import com.peyo.app.sync.BackupSettings
 import com.peyo.app.ui.AuthMode
 import com.peyo.app.ui.AuthScreen
 import com.peyo.app.ui.CurrencyDialog
+import com.peyo.app.ui.FeatureTour
+import com.peyo.app.ui.LaunchSplash
 import com.peyo.app.ui.PeyoApp
 import com.peyo.app.ui.theme.PeyoTheme
 import com.peyo.app.ui.theme.ThemeSettings
@@ -36,11 +46,11 @@ sealed interface LaunchAction {
 /**
  * Where a launch has got to, before the app itself is on screen.
  *
- * Only ever moves forward, and only on something the user did: choosing a route from the welcome
- * screen, or finishing with the one they chose. A phone that is already signed in starts at
- * [Opening] and never sees any of it.
+ * Only ever moves forward, and only on something the user did: finishing or skipping the feature
+ * tour, choosing a route from the welcome screen, or finishing with the one they chose. A phone
+ * that is already signed in starts at [Opening] and never sees any of it.
  */
-private enum class Launch { Welcome, SigningIn, Registering, Opening }
+private enum class Launch { Tour, Welcome, SigningIn, Registering, Opening }
 
 class MainActivity : ComponentActivity() {
 
@@ -64,6 +74,8 @@ class MainActivity : ComponentActivity() {
         // screenshot was read a second time, and a statement already being reviewed was parsed
         // afresh with the user's ticks thrown away.
         if (savedInstanceState == null) consume(intent)
+        // The background check for expenses friends have shared. Keeps an existing schedule.
+        com.peyo.app.sync.SharedCheckWorker.schedule(this)
         val account = Account(this)
         val settings = BackupSettings(this)
         setContent {
@@ -74,10 +86,16 @@ class MainActivity : ComponentActivity() {
                 // PeyoApp reads it when it first composes.
                 // Signed in, or previously said no: either way the question has been answered and
                 // the app opens on itself. Only a genuinely fresh install sees the welcome screen.
+                fun afterTour() =
+                    if (account.stored() != null || settings.accountDeclined) Launch.Opening
+                    else Launch.Welcome
+                // A new install opens on the feature tour first; finishing it or skipping it leads
+                // on to the account question, then the app.
                 var launch by rememberSaveable {
                     mutableStateOf(
-                        if (account.stored() != null || settings.accountDeclined) Launch.Opening
-                        else Launch.Welcome
+                        if (FeatureTourGate.shouldShow(this, knownUser = afterTour() == Launch.Opening)) {
+                            Launch.Tour
+                        } else afterTour()
                     )
                 }
                 // Asked once, and only once the user has settled the account question, so the two
@@ -88,37 +106,59 @@ class MainActivity : ComponentActivity() {
                 // worth confirming.
                 var askCurrency by rememberSaveable { mutableStateOf(!AppCurrency.hasChosen(this)) }
 
-                when (launch) {
-                    Launch.Welcome -> WelcomeScreen(
-                        onSignIn = { launch = Launch.SigningIn },
-                        onCreateAccount = { launch = Launch.Registering },
-                        onSkip = { settings.accountDeclined = true; launch = Launch.Opening }
-                    )
+                // The wordmark animation, once per cold start. Saved, so a rotation or a return
+                // from the background does not play it again.
+                var splash by rememberSaveable { mutableStateOf(true) }
 
-                    Launch.SigningIn, Launch.Registering -> AuthScreen(
-                        account = account,
-                        initialMode = if (launch == Launch.SigningIn) AuthMode.SIGN_IN else AuthMode.SIGN_UP,
-                        onSignedIn = { launch = Launch.Opening },
-                        onSkip = { settings.accountDeclined = true; launch = Launch.Opening },
-                        onBack = { launch = Launch.Welcome }
-                    )
+                Box(Modifier.fillMaxSize()) {
+                    when (launch) {
+                        Launch.Tour -> FeatureTour(onFinished = {
+                            FeatureTourGate.markSeen(this@MainActivity)
+                            launch = afterTour()
+                        })
 
-                    Launch.Opening -> {
-                        PeyoApp(action, actionToken)
-                        if (askCurrency) {
-                            CurrencyDialog(
-                                // Dismissing is a real answer -- it keeps the currency the app
-                                // guessed -- so it counts as having chosen and is not asked again.
-                                onDismiss = { AppCurrency.set(this, AppCurrency.code); askCurrency = false },
-                                subtitle = "Amounts are shown in this currency everywhere. " +
-                                    "You can change it later in Settings.",
-                                dismissLabel = "Keep " + AppCurrency.code,
-                                onPick = { picked ->
-                                    AppCurrency.set(this, picked)
-                                    askCurrency = false
-                                }
-                            )
+                        Launch.Welcome -> WelcomeScreen(
+                            onSignIn = { launch = Launch.SigningIn },
+                            onCreateAccount = { launch = Launch.Registering },
+                            onSkip = { settings.accountDeclined = true; launch = Launch.Opening }
+                        )
+
+                        Launch.SigningIn, Launch.Registering -> AuthScreen(
+                            account = account,
+                            initialMode = if (launch == Launch.SigningIn) AuthMode.SIGN_IN else AuthMode.SIGN_UP,
+                            onSignedIn = { launch = Launch.Opening },
+                            onSkip = { settings.accountDeclined = true; launch = Launch.Opening },
+                            onBack = { launch = Launch.Welcome }
+                        )
+
+                        Launch.Opening -> {
+                            PeyoApp(action, actionToken)
+                            // Held back until the splash has gone: a dialog is a window of its own
+                            // and would otherwise open on top of the animation.
+                            if (askCurrency && !splash) {
+                                CurrencyDialog(
+                                    // Dismissing is a real answer -- it keeps the currency the app
+                                    // guessed -- so it counts as having chosen and is not asked again.
+                                    onDismiss = { AppCurrency.set(this@MainActivity, AppCurrency.code); askCurrency = false },
+                                    subtitle = "Amounts are shown in this currency everywhere. " +
+                                        "You can change it later in Settings.",
+                                    dismissLabel = "Keep " + AppCurrency.code,
+                                    onPick = { picked ->
+                                        AppCurrency.set(this@MainActivity, picked)
+                                        askCurrency = false
+                                    }
+                                )
+                            }
                         }
+                    }
+                    // The app composes underneath from the first frame, so by the time this fades
+                    // the dashboard is already drawn rather than still loading.
+                    AnimatedVisibility(
+                        splash,
+                        enter = EnterTransition.None,
+                        exit = fadeOut(tween(260)) + scaleOut(tween(260), targetScale = 1.08f)
+                    ) {
+                        LaunchSplash(onFinished = { splash = false })
                     }
                 }
             }
@@ -158,10 +198,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private companion object {
-        const val ACTION_ADD_EXPENSE = "com.peyo.app.ADD_EXPENSE"
-        const val ACTION_SPLIT_EXPENSE = "com.peyo.app.SPLIT_EXPENSE"
-        const val ACTION_IMPORT_PDF = "com.peyo.app.IMPORT_PDF"
+    companion object {
+        private const val ACTION_ADD_EXPENSE = "com.peyo.app.ADD_EXPENSE"
+        private const val ACTION_SPLIT_EXPENSE = "com.peyo.app.SPLIT_EXPENSE"
+        private const val ACTION_IMPORT_PDF = "com.peyo.app.IMPORT_PDF"
         const val ACTION_OPEN_BALANCES = "com.peyo.app.OPEN_BALANCES"
     }
 }

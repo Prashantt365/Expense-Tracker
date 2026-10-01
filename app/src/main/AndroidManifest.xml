@@ -13,6 +13,12 @@
       or absent connection costs the backup, never the data.
     -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!--
+      Telling the user when a friend adds them to an expense. Asked for once they are signed in
+      with a mobile number, since until then nothing can be shared with them.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
@@ -74,6 +80,20 @@
           layout until the app is next opened. Not exported: the only sender is the system, and
           only about this app.
         -->
+        <!--
+          Hands the camera app somewhere to write a photo of a bill. Not exported: access is granted
+          per Uri, for the one file, when the camera is launched.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
         <receiver
             android:name=".widget.WidgetRefreshReceiver"
             android:exported="false">
