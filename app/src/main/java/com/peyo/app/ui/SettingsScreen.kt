@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -967,6 +969,7 @@ fun CurrencyDialog(
 }
 
 /** The account row in Settings, once there is somewhere to show it. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AccountCard(
     email: String?,
@@ -1040,17 +1043,19 @@ fun AccountCard(
         }
         if (!email.isNullOrBlank()) {
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Row(Modifier.padding(horizontal = 4.dp)) {
+            // On a narrow phone the three buttons don't fit one line; a plain Row squeezed "Delete
+            // account" down to one letter per line. FlowRow drops it to its own line instead.
+            FlowRow(Modifier.fillMaxWidth().padding(horizontal = 4.dp)) {
                 TextButton(onEditName) {
                     Icon(Icons.Default.Edit, null, Modifier.size(18.dp))
                     Gap(6.dp)
                     // An account made before names were asked for has nothing to edit yet.
-                    Text(if (name.isNullOrBlank()) "Add your name" else "Edit name")
+                    Text(if (name.isNullOrBlank()) "Add your name" else "Edit name", maxLines = 1)
                 }
                 TextButton(onEditPhone) {
                     Icon(Icons.Default.Phone, null, Modifier.size(18.dp))
                     Gap(6.dp)
-                    Text(if (phone.isNullOrBlank()) "Add number" else "Number")
+                    Text(if (phone.isNullOrBlank()) "Add number" else "Number", maxLines = 1)
                 }
                 Spacer(Modifier.weight(1f))
                 TextButton(
@@ -1059,7 +1064,7 @@ fun AccountCard(
                 ) {
                     Icon(Icons.Default.DeleteForever, null, Modifier.size(18.dp))
                     Gap(6.dp)
-                    Text("Delete account")
+                    Text("Delete account", maxLines = 1)
                 }
             }
         }

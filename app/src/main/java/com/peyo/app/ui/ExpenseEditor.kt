@@ -19,6 +19,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -52,6 +54,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -83,6 +86,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.peyo.app.AppCurrency
 import com.peyo.app.ExpenseInput
@@ -115,7 +119,6 @@ fun ExpenseEditor(
     val scope = rememberCoroutineScope()
     var draft by remember(input) { mutableStateOf(initialDraft) }
     LaunchedEffect(draft) { onDraftChange(draft) }
-    var showPersonMenu by remember { mutableStateOf(false) }
     var viewing by remember { mutableStateOf<AttachmentPreview?>(null) }
     var pickingDate by remember { mutableStateOf(false) }
     var pickingTime by remember { mutableStateOf(false) }
@@ -390,12 +393,21 @@ fun ExpenseEditor(
                 )
             } else {
                 Section("Split with people")
-                if (people.isEmpty()) Text(
-                    "Add people under Settings to split an expense.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                SplitPeoplePicker(
+                    people = people,
+                    selected = draft.shares.keys,
+                    onToggle = { id ->
+                        draft = draft.copy(
+                            shares = if (id in draft.shares) draft.shares - id
+                            else draft.shares + (id to "")
+                        )
+                    },
+                    onAddNew = { name ->
+                        val newId = onAddPersonInline(name)
+                        if (newId != 0L) draft = draft.copy(shares = draft.shares + (newId to ""))
+                    }
                 )
-                if (people.isNotEmpty()) {
+                if (draft.shares.isNotEmpty()) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                         SplitMode.entries.forEachIndexed { index, mode ->
                             SegmentedButton(
@@ -420,7 +432,7 @@ fun ExpenseEditor(
                     }
                     Text(
                         when (draft.splitMode) {
-                            SplitMode.CUSTOM -> "Type each person's share. Leave one blank to leave them out."
+                            SplitMode.CUSTOM -> "Type each person's share. Yours is whatever is left."
                             SplitMode.EQUAL -> "Divided evenly across everyone added, plus you."
                             SplitMode.PERCENT -> "Type each person's percentage. Yours is whatever is left."
                         },
@@ -438,58 +450,6 @@ fun ExpenseEditor(
                         onChange = { draft = draft.copy(shares = draft.shares + (personId to it)) },
                         onRemove = { draft = draft.copy(shares = draft.shares - personId) }
                     )
-                }
-                var newPersonName by remember { mutableStateOf("") }
-                Box {
-                    OutlinedButton({ showPersonMenu = true }) {
-                        Icon(Icons.Default.PersonAdd, null, Modifier.size(18.dp))
-                        Gap()
-                        Text("Add person")
-                    }
-                    DropdownMenu(showPersonMenu, { showPersonMenu = false }) {
-                        val available = people.filter { it.id !in draft.shares.keys }
-                        available.forEach { person ->
-                            DropdownMenuItem(
-                                text = { Text(person.name) },
-                                leadingIcon = { PersonAvatar(person.name, size = 28.dp) },
-                                onClick = {
-                                    draft = draft.copy(shares = draft.shares + (person.id to ""))
-                                    showPersonMenu = false
-                                }
-                            )
-                        }
-                        if (available.isNotEmpty()) {
-                            HorizontalDivider()
-                        }
-                        DropdownMenuItem(
-                            text = {
-                                OutlinedTextField(
-                                    value = newPersonName,
-                                    onValueChange = { newPersonName = it },
-                                    placeholder = { Text("New person name...") },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth(),
-                                    trailingIcon = {
-                                        if (newPersonName.isNotBlank()) {
-                                            IconButton(onClick = {
-                                                scope.launch {
-                                                    val newId = onAddPersonInline(newPersonName)
-                                                    if (newId != 0L) {
-                                                        draft = draft.copy(shares = draft.shares + (newId to ""))
-                                                    }
-                                                    newPersonName = ""
-                                                    showPersonMenu = false
-                                                }
-                                            }) {
-                                                Icon(Icons.Default.Check, "Add")
-                                            }
-                                        }
-                                    }
-                                )
-                            },
-                            onClick = { /* Do nothing */ }
-                        )
-                    }
                 }
                 if (draft.shares.isNotEmpty()) {
                     SplitSummary(totalPaise, assignedPaise, myShare, splitProblem)
@@ -690,6 +650,89 @@ private fun PaidByPicker(people: List<Person>, paidBy: Long?, onPick: (Long?) ->
                 leadingIcon = { PersonAvatar(person.name, size = 22.dp) }
             )
         }
+    }
+}
+
+/**
+ * Who the bill is split with, as a pill per person: tap to bring them in, tap again to take them
+ * out. It replaced an "Add person" button whose dropdown hid everyone behind a tap and showed only
+ * the people not picked yet, so nobody could see at a glance who was in.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SplitPeoplePicker(
+    people: List<Person>,
+    selected: Set<Long>,
+    onToggle: (Long) -> Unit,
+    onAddNew: suspend (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var adding by remember { mutableStateOf(false) }
+    var newName by remember { mutableStateOf("") }
+
+    Text(
+        if (people.isEmpty()) "Add someone to split this expense with them."
+        else "Tap the people this was shared with.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        people.forEach { person ->
+            val isIn = person.id in selected
+            FilterChip(
+                selected = isIn,
+                onClick = { onToggle(person.id) },
+                label = { Text(person.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                leadingIcon = if (isIn) {
+                    { Icon(Icons.Default.Check, null, Modifier.size(FilterChipDefaults.IconSize)) }
+                } else {
+                    { PersonAvatar(person.name, size = 22.dp) }
+                },
+                shape = MaterialTheme.shapes.small
+            )
+        }
+        AssistChip(
+            onClick = { adding = true },
+            label = { Text("New person") },
+            leadingIcon = { Icon(Icons.Default.PersonAdd, null, Modifier.size(16.dp)) },
+            shape = MaterialTheme.shapes.small
+        )
+    }
+
+    if (adding) {
+        fun close() {
+            adding = false
+            newName = ""
+        }
+        AlertDialog(
+            onDismissRequest = ::close,
+            title = { Text("Add person") },
+            text = {
+                OutlinedTextField(
+                    value = newName,
+                    onValueChange = { newName = it },
+                    label = { Text("Name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newName.isNotBlank(),
+                    onClick = {
+                        val name = newName.trim()
+                        scope.launch {
+                            onAddNew(name)
+                            close()
+                        }
+                    }
+                ) { Text("Add") }
+            },
+            dismissButton = { TextButton(::close) { Text("Cancel") } }
+        )
     }
 }
 
