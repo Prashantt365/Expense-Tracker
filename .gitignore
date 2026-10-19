@@ -29,3 +29,11 @@ captures
 bin/
 gen/
 .DS_Store
+/app/release/
+
+# JVM crash dumps
+hs_err_pid*.log
+replay_pid*.log
+
+# Claude Code artifacts
+.artifacts/
