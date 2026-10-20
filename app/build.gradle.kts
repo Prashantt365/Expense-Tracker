@@ -14,8 +14,8 @@ android {
         applicationId = "com.peyo.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "2.3"
+        versionCode = 6
+        versionName = "3.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         // Supabase, read from local.properties so the repo never carries a project of its own.
