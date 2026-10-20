@@ -61,6 +61,20 @@ A build without those stays wholly offline and shows the account options as unav
 local backup file still works. The anon key is meant to ship inside the APK — row level security on every table, not
 the key, is what keeps one account out of another's data.
 
+Links in Supabase's emails (password reset, signup confirmation) come back to the app at
+`peyo://auth`. In the dashboard, under **Authentication → URL Configuration**:
+
+- add `peyo://auth` to **Redirect URLs** — without it Supabase ignores the app's address and sends
+  the link to the Site URL instead, which by default is a `localhost` page a phone cannot open;
+- set **Site URL** to `peyo://auth` as well, so a reset sent from the dashboard's own
+  *Send password recovery* button opens the app too.
+
+**Forgot password?** on the sign-in screen also accepts the code from the reset email, for an email
+read on another device. Supabase's default template has no code in it, so paste
+`supabase/email-templates/reset-password.html` into **Authentication → Emails → Reset Password**.
+Supabase's built-in mailer only delivers to members of the project's organisation, a few emails an
+hour; set up custom SMTP before anyone else needs a reset.
+
 `schema.sql` is re-runnable: applying it twice changes nothing, so run it again after pulling
 changes. Alongside the four data tables it creates `public.profiles`, one row per registered user
 carrying the address they registered with and an `auth_completed` flag that is true once Supabase

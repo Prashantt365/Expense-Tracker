@@ -65,13 +65,13 @@ import kotlinx.coroutines.launch
  * The shortest password Supabase will accept by default. Checking it here rather than letting the
  * server refuse turns a round trip and a jargon error into an answer the user gets while typing.
  */
-private const val MIN_PASSWORD = 6
+internal const val MIN_PASSWORD = 6
 
 enum class AuthMode { SIGN_IN, SIGN_UP }
 
 /** The mark, as it opens both the welcome screen and the sign-in form. */
 @Composable
-private fun PeyoMark(subtitle: String? = null) {
+internal fun PeyoMark(subtitle: String? = null) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         // The wordmark is the whole of the logo, so it is drawn here rather than set in type. It is
         // stored as a white mask and tinted, which keeps it legible in dark theme where the brand
@@ -216,6 +216,18 @@ fun AuthScreen(
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var confirmationSentTo by remember { mutableStateOf<String?>(null) }
+    var resetting by remember { mutableStateOf(false) }
+
+    if (resetting) {
+        PasswordResetForm(
+            account = account,
+            initialEmail = email,
+            onSignedIn = onSignedIn,
+            onBack = { resetting = false; error = null },
+            modifier = modifier
+        )
+        return
+    }
 
     val emailLooksReal = email.trim().let { it.contains('@') && it.substringAfterLast('@').contains('.') }
     val normalizedPhone = PhoneNumbers.normalize(phone)
@@ -388,6 +400,14 @@ fun AuthScreen(
             ) {
                 if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                 else Text(if (mode == AuthMode.SIGN_IN) "Sign in" else "Create account")
+            }
+
+            if (mode == AuthMode.SIGN_IN) TextButton(
+                { resetting = true },
+                Modifier.fillMaxWidth(),
+                enabled = !busy && Supabase.isConfigured
+            ) {
+                Text("Forgot password?")
             }
 
             TextButton(

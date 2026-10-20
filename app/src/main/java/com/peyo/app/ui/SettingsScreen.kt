@@ -155,10 +155,9 @@ fun SettingsScreen(
     val lastSync by vm.lastSync.collectAsState()
     val lastSyncAt by vm.lastSyncAt.collectAsState()
     // A sync can find the session revoked and sign the phone out underneath this screen, which
-    // otherwise went on showing the account as signed in with every backup quietly refused.
-    LaunchedEffect(lastSync) {
-        if (lastSync is SyncOutcome.NotSignedIn) session = account.stored()
-    }
+    // otherwise went on showing the account as signed in with every backup quietly refused. A link
+    // from a reset email can sign it in underneath too, and is followed by a sync for that reason.
+    LaunchedEffect(lastSync) { session = account.stored() }
     val autoBackup by vm.autoBackup.collectAsState()
     val fileOutcome by vm.fileOutcome.collectAsState()
 

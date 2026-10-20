@@ -13,15 +13,20 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.core.content.IntentCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.peyo.app.sync.Account
+import com.peyo.app.sync.authLinkFrom
 import com.peyo.app.sync.BackupSettings
+import com.peyo.app.ui.AuthLinkScreen
 import com.peyo.app.ui.AuthMode
 import com.peyo.app.ui.AuthScreen
 import com.peyo.app.ui.CurrencyDialog
@@ -63,8 +68,16 @@ class MainActivity : ComponentActivity() {
      */
     private var actionToken by mutableIntStateOf(0)
 
+    /**
+     * A link from a Supabase email -- a password reset or a confirmed signup -- waiting to be
+     * acted on. Kept as the address it arrived as, so it can ride out a rotation in the saved
+     * state, which [consume] is deliberately not run again for.
+     */
+    private var authLink by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState); enableEdgeToEdge()
+        authLink = savedInstanceState?.getString(KEY_AUTH_LINK)
         // Before any composition, so the first frame already shows the right currency and the
         // theme the user picked rather than a light flash followed by the dark one.
         AppCurrency.load(this)
@@ -110,6 +123,10 @@ class MainActivity : ComponentActivity() {
                 // from the background does not play it again.
                 var splash by rememberSaveable { mutableStateOf(true) }
 
+                // Bumped when a link signs the phone in while the app is already open, which is
+                // past the sync it runs on opening, so it is asked for one directly.
+                var linkSignIns by remember { mutableIntStateOf(0) }
+
                 Box(Modifier.fillMaxSize()) {
                     when (launch) {
                         Launch.Tour -> FeatureTour(onFinished = {
@@ -132,7 +149,12 @@ class MainActivity : ComponentActivity() {
                         )
 
                         Launch.Opening -> {
-                            PeyoApp(action, actionToken)
+                            // The same instance PeyoApp would fetch for itself, scoped to the
+                            // activity; fetched only once the app is open, since creating it is
+                            // what runs the sync on opening.
+                            val vm: ExpenseViewModel = viewModel()
+                            PeyoApp(action, actionToken, vm)
+                            LaunchedEffect(linkSignIns) { if (linkSignIns > 0) vm.sync() }
                             // Held back until the splash has gone: a dialog is a window of its own
                             // and would otherwise open on top of the animation.
                             if (askCurrency && !splash) {
@@ -151,6 +173,17 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
+                    authLink?.let(::authLinkFrom)?.let { link ->
+                        AuthLinkScreen(
+                            link = link,
+                            account = account,
+                            onSignedIn = {
+                                authLink = null
+                                if (launch == Launch.Opening) linkSignIns++ else launch = Launch.Opening
+                            },
+                            onDismiss = { authLink = null }
+                        )
+                    }
                     // The app composes underneath from the first frame, so by the time this fades
                     // the dashboard is already drawn rather than still loading.
                     AnimatedVisibility(
@@ -165,6 +198,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(KEY_AUTH_LINK, authLink)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         // Kept as the activity's intent too, so that anything reading it later sees the latest
@@ -174,6 +212,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun consume(intent: Intent) {
+        intent.dataString?.takeIf { authLinkFrom(it) != null }?.let {
+            authLink = it
+            return
+        }
         val next = when (intent.action) {
             Intent.ACTION_SEND, Intent.ACTION_VIEW -> sharedDocument(intent)
             ACTION_ADD_EXPENSE -> LaunchAction.AddExpense
@@ -199,6 +241,7 @@ class MainActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val KEY_AUTH_LINK = "authLink"
         private const val ACTION_ADD_EXPENSE = "com.peyo.app.ADD_EXPENSE"
         private const val ACTION_SPLIT_EXPENSE = "com.peyo.app.SPLIT_EXPENSE"
         private const val ACTION_IMPORT_PDF = "com.peyo.app.IMPORT_PDF"

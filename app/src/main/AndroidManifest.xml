@@ -53,6 +53,20 @@
                 <data android:mimeType="application/pdf" />
             </intent-filter>
 
+            <!--
+              Where Supabase sends the browser after a password reset or signup confirmation link
+              in an email is followed, so the link opens Peyo rather than a localhost page.
+              BROWSABLE because it is the browser that follows the redirect. Any page can open this
+              address, so what it carries is only ever acted on after the user confirms the
+              account it names.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="peyo" android:host="auth" />
+            </intent-filter>
+
             <!-- Launcher shortcuts, each of which can also be pinned to the home screen. -->
             <intent-filter>
                 <action android:name="com.peyo.app.ADD_EXPENSE" />

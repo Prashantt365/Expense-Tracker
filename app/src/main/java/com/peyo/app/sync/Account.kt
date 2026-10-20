@@ -140,7 +140,8 @@ class Account(context: Context) {
         }
         val response = Supabase.request(
             method = "POST",
-            path = "/auth/v1/signup",
+            // So the confirmation link opens the app, not the project's Site URL.
+            path = "/auth/v1/signup?redirect_to=$AUTH_REDIRECT_PARAM",
             body = JSONObject(credentials(email, password))
                 .put("data", JSONObject().put("full_name", name.trim()).put("phone_number", phone))
                 .toString()
@@ -175,6 +176,67 @@ class Account(context: Context) {
             body = credentials(email, password)
         )
         return response.toSession()
+    }
+
+    /**
+     * Emails a password reset: a link that opens the app at [AUTH_REDIRECT], and -- once the
+     * project's "Reset Password" template carries `{{ .Token }}` -- a code to type in instead, for
+     * an email read on a different device.
+     *
+     * GoTrue answers the same whether or not the address has an account, so this cannot be used
+     * to find out who has one, and the caller cannot either.
+     */
+    suspend fun sendPasswordReset(email: String): Response<Unit> = Supabase.request(
+        method = "POST",
+        path = "/auth/v1/recover?redirect_to=$AUTH_REDIRECT_PARAM",
+        body = JSONObject().put("email", email.trim()).toString()
+    ).map {}
+
+    /**
+     * Trades the code from a reset email for a session. The session is handed back rather than
+     * remembered: it only becomes the phone's account once a new password is set with it.
+     */
+    suspend fun verifyResetCode(email: String, code: String): Response<Session> = Supabase.request(
+        method = "POST",
+        path = "/auth/v1/verify",
+        body = JSONObject()
+            .put("type", "recovery")
+            .put("email", email.trim())
+            .put("token", code.trim())
+            .toString()
+    ).toSession(keep = false)
+
+    /**
+     * The session a link from a Supabase email carries. The link holds only the tokens, so the
+     * user they belong to is asked for. Not remembered, for the same reason as [verifyResetCode].
+     */
+    suspend fun sessionFromLink(link: AuthLink.Tokens): Response<Session> {
+        val response = Supabase.request("GET", "/auth/v1/user", accessToken = link.accessToken)
+        return when (response) {
+            is Response.Offline -> response
+            is Response.Rejected -> response
+            is Response.Ok -> {
+                val json = JSONObject()
+                    .put("access_token", link.accessToken)
+                    .put("refresh_token", link.refreshToken)
+                    .put("expires_in", link.expiresIn)
+                    .put("user", response.body.asJsonObject())
+                sessionFrom(json)?.let { Response.Ok(it) }
+                    ?: Response.Rejected(200, "The server sent something unreadable.")
+            }
+        }
+    }
+
+    /** Sets a new password with a session from a reset, then signs the phone in with it. */
+    suspend fun setPassword(session: Session, password: String): Response<Session> {
+        val response = Supabase.request(
+            method = "PUT",
+            path = "/auth/v1/user",
+            body = JSONObject().put("password", password).toString(),
+            accessToken = session.accessToken
+        )
+        if (response is Response.Ok) remember(session)
+        return response.map { session }
     }
 
     /**
@@ -340,14 +402,14 @@ class Account(context: Context) {
         .put("password", password)
         .toString()
 
-    private fun Response<String>.toSession(): Response<Session> = when (this) {
+    private fun Response<String>.toSession(keep: Boolean = true): Response<Session> = when (this) {
         is Response.Offline -> this
         is Response.Rejected -> this
         is Response.Ok -> {
             val session = body.asJsonObject()?.let(::sessionFrom)
             if (session == null) Response.Rejected(200, "The server sent something unreadable.")
             else {
-                remember(session)
+                if (keep) remember(session)
                 Response.Ok(session)
             }
         }
